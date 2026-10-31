@@ -188,10 +188,13 @@ export function registerPollerRoutes(server, ctx) {
     const rawText = body.rawText || body.text || body.message || body.sms || body.body || (typeof body.rawPayload === 'string' ? body.rawPayload : (body.rawPayload?.text || body.rawPayload?.body));
     const sender = body.sender || body.from || body.rawPayload?.sender || body.rawPayload?.from;
 
+    const clientMessageEcho = body.clientMessageId ? { clientMessageId: String(body.clientMessageId) } : {};
+
     // Reject missing or blank observation rawText
     if (!rawText || (typeof rawText === 'string' && !rawText.trim())) {
       HttpServer.json(res, 400, {
         accepted: false,
+        ...clientMessageEcho,
         status: 'REJECTED',
         reason: 'MISSING_RAW_TEXT',
         error: 'Observation rawText is required for verification.'
@@ -202,12 +205,18 @@ export function registerPollerRoutes(server, ctx) {
     // Bank notifications are small. Reject oversized bodies outright so no single observation
     // can be used to burn CPU or memory on the verification path.
     if (typeof rawText === 'string' && rawText.length > MAX_OBSERVATION_TEXT_CHARS) {
-      HttpServer.json(res, 413, { error: `Observation body too large (max ${MAX_OBSERVATION_TEXT_CHARS} characters).` });
+      HttpServer.json(res, 413, {
+        ...clientMessageEcho,
+        error: `Observation body too large (max ${MAX_OBSERVATION_TEXT_CHARS} characters).`
+      });
       return;
     }
 
     if (!ctx.pipeline) {
-      HttpServer.json(res, 500, { error: 'Verification pipeline is not configured on this server.' });
+      HttpServer.json(res, 500, {
+        ...clientMessageEcho,
+        error: 'Verification pipeline is not configured on this server.'
+      });
       return;
     }
 
@@ -218,6 +227,7 @@ export function registerPollerRoutes(server, ctx) {
       receivingAccountId: body.receivingAccountId,
       paymentSessionId: body.paymentSessionId,
       bankReferenceNumber: body.bankReferenceNumber || body.utr,
+      receivedAt: body.observedAt || body.receivedAt,
       // Test flags relax verification: honour them only for the admin credential, never for observers.
       isTest: Boolean(body.isTest) && isAdminRequest(req),
       testModeActive: Boolean(body.testModeActive) && isAdminRequest(req)
@@ -226,6 +236,7 @@ export function registerPollerRoutes(server, ctx) {
     if (pipeResult.status === 'REJECTED' && pipeResult.failingCondition === 'FRAUDULENT_PAYMENT_INJECTION') {
       HttpServer.json(res, 403, {
         accepted: false,
+        ...clientMessageEcho,
         status: 'REJECTED',
         reason: 'FRAUDULENT_PAYMENT_INJECTION',
         threatDetected: true,
@@ -238,9 +249,22 @@ export function registerPollerRoutes(server, ctx) {
     if (pipeResult.status === 'VERIFIED') {
       HttpServer.json(res, 200, {
         accepted: true,
-        ...(body.clientMessageId ? { clientMessageId: body.clientMessageId } : {}),
+        ...clientMessageEcho,
         observationId: pipeResult.messageId || pipeResult.stages?.stage6?.details?.observationId,
         attribution: pipeResult.stages?.stage6?.details || pipeResult,
+        pipeline: pipeResult
+      });
+      return;
+    }
+
+    if (pipeResult.status === 'MANUAL_REVIEW') {
+      HttpServer.json(res, 200, {
+        accepted: false,
+        ...clientMessageEcho,
+        status: 'MANUAL_REVIEW',
+        reason: pipeResult.failingCondition || pipeResult.attribution?.reason || 'AMBIGUOUS_SESSION_MATCH',
+        observationId: pipeResult.stages?.stage6?.details?.observationId || pipeResult.messageId,
+        attribution: pipeResult.attribution || pipeResult.stages?.stage6?.details,
         pipeline: pipeResult
       });
       return;
@@ -249,6 +273,7 @@ export function registerPollerRoutes(server, ctx) {
     if (pipeResult.status === 'REJECTED') {
       HttpServer.json(res, 400, {
         accepted: false,
+        ...clientMessageEcho,
         status: 'REJECTED',
         reason: pipeResult.failingCondition,
         error: pipeResult.failingReason || pipeResult.details,
@@ -268,13 +293,15 @@ export function registerPollerRoutes(server, ctx) {
     if (
       pipeResult.failingStage === 4 &&
       pipeResult.failingCondition === 'NO_ACTIVE_SESSION' &&
+      body.receivingAccountId &&
+      pipeResult.amountPaise &&
       ctx.sessionRepo && ctx.attributionEngine
     ) {
       const liveSession = ctx.sessionRepo.findCurrentActiveOrProcessing(body.receivingAccountId);
       if (!liveSession) {
         try {
           const lateResult = ctx.attributionEngine.processObservation({
-            source: body.source,
+            source: body.source || 'SMS_GATEWAY',
             receivingAccountId: body.receivingAccountId,
             amountPaise: pipeResult.amountPaise,
             bankReferenceNumber: pipeResult.reference || body.utr || body.bankReferenceNumber,
@@ -282,29 +309,36 @@ export function registerPollerRoutes(server, ctx) {
             sender,
             rawPayload: body.rawPayload || { text: rawText }
           });
-          HttpServer.json(res, 200, {
-            accepted: false,
-            status: lateResult?.outcomeStatus || 'LATE_UNMATCHED',
-            reason: 'LATE_OBSERVATION_NO_ACTIVE_SESSION',
-            observationId: lateResult?.observationId || pipeResult.messageId,
-            error: 'Payment credit was received after the session ended and has been queued for manual reconciliation.',
-            pipeline: pipeResult
-          });
+          if (lateResult?.lateMatch || lateResult?.ambiguous) {
+            HttpServer.json(res, 200, {
+              accepted: false,
+              ...clientMessageEcho,
+              status: lateResult.outcomeStatus || 'LATE_UNMATCHED',
+              reason: lateResult.reason || 'LATE_OBSERVATION_NO_ACTIVE_SESSION',
+              observationId: lateResult.observationId || pipeResult.messageId,
+              attribution: lateResult,
+              error: 'Payment credit was received after the session ended and has been queued for manual reconciliation.',
+              pipeline: pipeResult
+            });
+            return;
+          }
         } catch (err) {
           HttpServer.json(res, 400, {
             accepted: false,
+            ...clientMessageEcho,
             status: 'UNRESOLVED',
             reason: pipeResult.failingCondition || 'UNRESOLVED_OBSERVATION',
             error: 'Payment observation could not be verified or attributed.'
           });
+          return;
         }
-        return;
       }
     }
 
     // Invert check: if status is not VERIFIED, return 4xx and NEVER fall through to direct attribution
     HttpServer.json(res, 400, {
       accepted: false,
+      ...clientMessageEcho,
       status: pipeResult.status || 'UNRESOLVED',
       reason: pipeResult.stages?.stage6?.outcomeStatus || pipeResult.failingCondition || 'UNRESOLVED_OBSERVATION',
       observationId: pipeResult.messageId || pipeResult.stages?.stage6?.details?.observationId,
@@ -451,11 +485,13 @@ export function registerPollerRoutes(server, ctx) {
     // allowlist is the control. The plain SMS-broadcast route has no package to report (the
     // broadcast only carries the sender address) and is authenticated by the device HMAC
     // instead, so requiring one there would break the observer.
+    const clientMessageEcho = body.clientMessageId ? { clientMessageId: String(body.clientMessageId) } : {};
     const rawPkg = body.rawNotification?.package;
     if (requirePackage) {
       if (!rawPkg || typeof rawPkg !== 'string' || !rawPkg.trim()) {
         HttpServer.json(res, 400, {
           accepted: false,
+          ...clientMessageEcho,
           error: 'Android notification observation must specify a valid package name in rawNotification.package'
         });
         return;
@@ -467,6 +503,7 @@ export function registerPollerRoutes(server, ctx) {
       if (!isAllowedNotificationPackage(notificationPackage)) {
         HttpServer.json(res, 400, {
           accepted: false,
+          ...clientMessageEcho,
           error: `Untrusted Android notification package: ${notificationPackage}`
         });
         return;
@@ -478,6 +515,7 @@ export function registerPollerRoutes(server, ctx) {
     if (!rawText || (typeof rawText === 'string' && !rawText.trim())) {
       HttpServer.json(res, 400, {
         accepted: false,
+        ...clientMessageEcho,
         status: 'REJECTED',
         reason: 'MISSING_RAW_TEXT',
         error: 'Observation rawText is required for verification.'
@@ -507,7 +545,10 @@ export function registerPollerRoutes(server, ctx) {
 
     // Evaluate through Security & Fraud Verification Pipeline for Android Ingest
     if (!ctx.pipeline) {
-      HttpServer.json(res, 500, { error: 'Verification pipeline is not configured on this server.' });
+      HttpServer.json(res, 500, {
+        ...clientMessageEcho,
+        error: 'Verification pipeline is not configured on this server.'
+      });
       return;
     }
 
@@ -518,6 +559,7 @@ export function registerPollerRoutes(server, ctx) {
       receivingAccountId,
       paymentSessionId: body.paymentSessionId,
       bankReferenceNumber: bankRef,
+      receivedAt: observedAt,
       isTest: false, // device-supplied flags must never relax verification
       deviceInfo: device ? `${device.device_name} (${device.device_model})` : 'Android SMS Gateway'
     });
@@ -525,6 +567,7 @@ export function registerPollerRoutes(server, ctx) {
     if (pipeResult.status === 'REJECTED' && pipeResult.failingCondition === 'FRAUDULENT_PAYMENT_INJECTION') {
       HttpServer.json(res, 403, {
         accepted: false,
+        ...clientMessageEcho,
         status: 'REJECTED',
         reason: 'FRAUDULENT_PAYMENT_INJECTION',
         threatDetected: true,
@@ -538,9 +581,23 @@ export function registerPollerRoutes(server, ctx) {
       ctx.db.execute("UPDATE android_devices SET last_observation_at = datetime('now') WHERE id = ?", [deviceId]);
       HttpServer.json(res, 200, {
         accepted: true,
-        ...(body.clientMessageId ? { clientMessageId: body.clientMessageId } : {}),
+        ...clientMessageEcho,
         observationId: pipeResult.messageId || pipeResult.stages?.stage6?.details?.observationId,
         attribution: pipeResult.stages?.stage6?.details || pipeResult,
+        pipeline: pipeResult
+      });
+      return;
+    }
+
+    if (pipeResult.status === 'MANUAL_REVIEW') {
+      ctx.db.execute("UPDATE android_devices SET last_observation_at = datetime('now') WHERE id = ?", [deviceId]);
+      HttpServer.json(res, 200, {
+        accepted: false,
+        ...clientMessageEcho,
+        status: 'MANUAL_REVIEW',
+        reason: pipeResult.failingCondition || pipeResult.attribution?.reason || 'AMBIGUOUS_SESSION_MATCH',
+        observationId: pipeResult.stages?.stage6?.details?.observationId || pipeResult.messageId,
+        attribution: pipeResult.attribution || pipeResult.stages?.stage6?.details,
         pipeline: pipeResult
       });
       return;
@@ -550,6 +607,7 @@ export function registerPollerRoutes(server, ctx) {
       ctx.db.execute("UPDATE android_devices SET last_observation_at = datetime('now') WHERE id = ?", [deviceId]);
       HttpServer.json(res, 400, {
         accepted: false,
+        ...clientMessageEcho,
         status: 'REJECTED',
         reason: pipeResult.failingCondition,
         error: pipeResult.failingReason || pipeResult.details,
@@ -565,6 +623,7 @@ export function registerPollerRoutes(server, ctx) {
       ctx.db.execute("UPDATE android_devices SET last_observation_at = datetime('now') WHERE id = ?", [deviceId]);
       HttpServer.json(res, 200, {
         accepted: true,
+        ...clientMessageEcho,
         status: 'PROCESSED_NON_BANK',
         bankMatch: false,
         message: 'Raw SMS observation ingested and evaluated by server pipeline.'
@@ -572,10 +631,48 @@ export function registerPollerRoutes(server, ctx) {
       return;
     }
 
+    if (
+      pipeResult.failingStage === 4 &&
+      pipeResult.failingCondition === 'NO_ACTIVE_SESSION' &&
+      receivingAccountId &&
+      (pipeResult.amountPaise || amountPaise) &&
+      ctx.sessionRepo && ctx.attributionEngine
+    ) {
+      const liveSession = ctx.sessionRepo.findCurrentActiveOrProcessing(receivingAccountId);
+      if (!liveSession) {
+        try {
+          const lateResult = ctx.attributionEngine.processObservation({
+            source: 'ANDROID_OBSERVER',
+            receivingAccountId,
+            amountPaise: pipeResult.amountPaise || amountPaise,
+            bankReferenceNumber: pipeResult.reference || bankRef,
+            observedAt,
+            sender: body.sender || req.headers['x-sender'] || body.rawNotification?.package,
+            rawPayload: body.rawNotification || { text: rawText }
+          });
+          if (lateResult?.lateMatch || lateResult?.ambiguous) {
+            ctx.db.execute("UPDATE android_devices SET last_observation_at = datetime('now') WHERE id = ?", [deviceId]);
+            HttpServer.json(res, 200, {
+              accepted: false,
+              ...clientMessageEcho,
+              status: lateResult.outcomeStatus || 'LATE_UNMATCHED',
+              reason: lateResult.reason || 'LATE_OBSERVATION_NO_ACTIVE_SESSION',
+              observationId: lateResult.observationId || pipeResult.messageId,
+              attribution: lateResult,
+              error: 'Payment credit was received after the session ended and has been queued for manual reconciliation.',
+              pipeline: pipeResult
+            });
+            return;
+          }
+        } catch {}
+      }
+    }
+
     // Invert check: if status is not VERIFIED, return 4xx and NEVER fall through to direct attribution
     ctx.db.execute("UPDATE android_devices SET last_observation_at = datetime('now') WHERE id = ?", [deviceId]);
     HttpServer.json(res, 400, {
       accepted: false,
+      ...clientMessageEcho,
       status: pipeResult.status || 'UNRESOLVED',
       reason: pipeResult.stages?.stage6?.outcomeStatus || pipeResult.failingCondition || 'UNRESOLVED_OBSERVATION',
       observationId: pipeResult.messageId || pipeResult.stages?.stage6?.details?.observationId,
