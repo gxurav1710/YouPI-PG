@@ -436,4 +436,154 @@ describe('Phase 9A Fail-Closed Payment Attribution Hardening Suite', () => {
     assert.equal(promoted.id, s2.id);
     assert.equal(sessionRepo.findById(s2.id).status, PaymentStatus.ACTIVE);
   });
+
+  test('9. Cross-channel vs same-channel-family deduplication: SMS_GATEWAY + ANDROID_OBSERVER does not falsely upgrade to Level 2', () => {
+    const session = sessionRepo.create({
+      merchantId: merchantA.id,
+      receivingAccountId: accountA.id,
+      orderId: 'ORD-SAME-FAMILY-DEDUP',
+      amountPaise: 25000n
+    });
+    sessionRepo.acquireSlotAtomic(session.id, accountA.id, 300000);
+
+    // 1st SMS observation via SMS_GATEWAY
+    const smsRes = pipeline.process({
+      source: 'SMS_GATEWAY',
+      rawText: 'Received Rs 250.00 on UPI. Ref: 888877776666',
+      sender: 'HDFCBK',
+      receivingAccountId: accountA.id
+    });
+    assert.equal(smsRes.status, 'VERIFIED');
+    assert.equal(sessionRepo.findById(session.id).verificationLevel, 1);
+
+    // 2nd observation of the same SMS via ANDROID_OBSERVER (same SMS channel family, NOT Gmail)
+    const androidDupRes = pipeline.process({
+      source: 'ANDROID_OBSERVER',
+      rawText: 'Received Rs 250.00 on UPI. Ref: 888877776666',
+      sender: 'HDFCBK',
+      receivingAccountId: accountA.id
+    });
+    assert.equal(androidDupRes.status, 'REJECTED');
+    assert.equal(androidDupRes.failingCondition, 'DUPLICATE_OBSERVATION');
+    assert.equal(sessionRepo.findById(session.id).verificationLevel, 1, 'Same-family SMS replay must not upgrade to Level 2');
+
+    // 3rd observation via independent GMAIL channel upgrades to Level 2 Dual Verification
+    const gmailRes = pipeline.process({
+      source: 'GMAIL',
+      rawText: 'Dear Customer, Rs 250.00 has been credited to your account via UPI. Ref: 888877776666',
+      sender: 'alerts@hdfc.bank.in',
+      receivingAccountId: accountA.id
+    });
+    assert.equal(gmailRes.status, 'VERIFIED');
+    const updated = sessionRepo.findById(session.id);
+    assert.equal(updated.verificationLevel, 2);
+    assert.match(updated.verificationTag, /Dual Verification/);
+  });
+
+  test('10. Conflicting UTR during in-flight grace window holds session in MANUAL_REVIEW instead of upgrading to Level 2', () => {
+    const graceEngine = new AttributionEngine({
+      sessionRepo,
+      obsRepo,
+      ticketRepo,
+      auditRepo,
+      gracePeriodMs: 5000
+    });
+
+    try {
+      const session = sessionRepo.create({
+        merchantId: merchantA.id,
+        receivingAccountId: accountA.id,
+        orderId: 'ORD-CONFLICT-GRACE',
+        amountPaise: 30000n
+      });
+      sessionRepo.acquireSlotAtomic(session.id, accountA.id, 300000);
+
+      // 1st observation starts 5s grace window with UTR 111122223333
+      const obs1 = graceEngine.processObservation(ObservationNormalizer.normalize({
+        receivingAccountId: accountA.id,
+        source: ObserverSource.SMS_GATEWAY,
+        amountPaise: 30000n,
+        bankReferenceNumber: '111122223333',
+        observedAt: new Date()
+      }));
+      assert.equal(obs1.attributed, true);
+      assert.equal(obs1.outcomeStatus, 'VERIFYING');
+
+      // 2nd observation arrives during grace window for same amount but CONFLICTING UTR 444455556666
+      const obs2 = graceEngine.processObservation(ObservationNormalizer.normalize({
+        receivingAccountId: accountA.id,
+        source: ObserverSource.GMAIL,
+        amountPaise: 30000n,
+        bankReferenceNumber: '444455556666',
+        observedAt: new Date()
+      }));
+      assert.equal(obs2.attributed, false);
+      assert.equal(obs2.ambiguous, true);
+      assert.equal(obs2.outcomeStatus, PaymentStatus.MANUAL_REVIEW);
+      assert.equal(obs2.reason, 'CONFLICTING_UTR_ON_SESSION');
+
+      const heldSession = sessionRepo.findById(session.id);
+      assert.equal(heldSession.status, PaymentStatus.MANUAL_REVIEW);
+
+      // Subsequent observer alerts cannot move a MANUAL_REVIEW session to OBSERVED_SUCCESS
+      const obs3 = graceEngine.processObservation(ObservationNormalizer.normalize({
+        receivingAccountId: accountA.id,
+        source: ObserverSource.GMAIL,
+        amountPaise: 30000n,
+        bankReferenceNumber: '111122223333',
+        observedAt: new Date()
+      }));
+      assert.equal(obs3.attributed, false);
+      assert.equal(obs3.outcomeStatus, PaymentStatus.MANUAL_REVIEW);
+      assert.equal(sessionRepo.findById(session.id).status, PaymentStatus.MANUAL_REVIEW);
+    } finally {
+      graceEngine.destroy();
+    }
+  });
+
+  test('11. Delayed and unmatched observations are reconciled into LATE_UNMATCHED with audit trail and support tickets', () => {
+    const customer = customerRepo.create({
+      name: 'Delayed Payer',
+      email: 'delayed@example.com',
+      mobileNumber: '9876500001'
+    });
+    const session = sessionRepo.create({
+      merchantId: merchantA.id,
+      receivingAccountId: accountA.id,
+      customerId: customer.id,
+      orderId: 'ORD-DELAYED-RECON',
+      amountPaise: 42000n
+    });
+    sessionRepo.acquireSlotAtomic(session.id, accountA.id, 300000);
+
+    // 1. Unmatched observation arrives while session is not yet expired (or stored as UNATTRIBUTED first)
+    const rawUnattributed = obsRepo.create({
+      receivingAccountId: accountA.id,
+      source: ObserverSource.SMS_GATEWAY,
+      amountPaise: 42000n,
+      bankReferenceNumber: '909090121212',
+      fingerprintHash: 'fp-unmatched-recon-420',
+      observedAt: new Date()
+    });
+    assert.equal(rawUnattributed.attributionStatus, ObservationAttributionStatus.UNATTRIBUTED);
+
+    // 2. Session expires before attribution
+    sessionRepo.transitionToTerminal(session.id, PaymentStatus.EXPIRED);
+
+    // 3. Reconciling unmatched observations links it to the expired session as LATE_UNMATCHED and opens a ticket
+    const reconSummary = attributionEngine.reconcileUnmatchedObservations(accountA.id);
+    assert.equal(reconSummary.processed, 1);
+    assert.equal(reconSummary.reconciledCount, 1);
+    assert.equal(reconSummary.results[0].outcomeStatus, ObservationAttributionStatus.LATE_UNMATCHED);
+    assert.equal(reconSummary.results[0].paymentSessionId, session.id);
+
+    const updatedObs = obsRepo.findById(rawUnattributed.id);
+    assert.equal(updatedObs.attributionStatus, ObservationAttributionStatus.LATE_UNMATCHED);
+    assert.equal(updatedObs.rawPayload.lateMatchedSessionId, session.id);
+    assert.equal(sessionRepo.findById(session.id).status, PaymentStatus.EXPIRED, 'Expired session must remain EXPIRED');
+
+    const tickets = db.query('SELECT * FROM support_tickets WHERE payment_id = ?', [session.id]);
+    assert.equal(tickets.length, 1);
+    assert.match(tickets[0].subject, /LATE PAYMENT DETECTED/);
+  });
 });
