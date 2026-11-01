@@ -1,4 +1,13 @@
-import { PaymentStatus, ObservationAttributionStatus, TicketStatus, SenderType, isTerminalStatus } from '@youpi/common';
+import { PaymentStatus, ObservationAttributionStatus, TicketStatus, SenderType, isTerminalStatus, calculateObservationFingerprint } from '@youpi/common';
+
+export function getChannelFamily(source) {
+  const normalized = String(source || '').trim().toUpperCase();
+  if (normalized === 'GMAIL') return 'GMAIL';
+  if (['SMS', 'SMS_GATEWAY', 'GOOGLE_MESSAGES', 'ANDROID_OBSERVER'].includes(normalized)) {
+    return 'SMS';
+  }
+  return normalized || 'SMS';
+}
 
 export class AttributionEngine {
   /**
@@ -118,22 +127,51 @@ export class AttributionEngine {
     if (normalizedObs && normalizedObs.amountPaise !== undefined && typeof normalizedObs.amountPaise !== 'bigint') {
       normalizedObs = { ...normalizedObs, amountPaise: BigInt(normalizedObs.amountPaise) };
     }
+    if (normalizedObs && !(normalizedObs.observedAt instanceof Date)) {
+      const parsedDate = normalizedObs.observedAt ? new Date(normalizedObs.observedAt) : new Date();
+      normalizedObs = {
+        ...normalizedObs,
+        observedAt: Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate
+      };
+    }
+    if (normalizedObs && !normalizedObs.fingerprintHash) {
+      normalizedObs = {
+        ...normalizedObs,
+        fingerprintHash: calculateObservationFingerprint({
+          receivingAccountId: normalizedObs.receivingAccountId,
+          amountPaise: normalizedObs.amountPaise,
+          source: normalizedObs.source,
+          bankReferenceNumber: normalizedObs.bankReferenceNumber,
+          observedAt: normalizedObs.observedAt
+        })
+      };
+    }
+
+    const incomingFamily = getChannelFamily(normalizedObs.source);
 
     // Tier 1: Check fingerprint for deduplication
-    // Look up this channel first: once a second channel has upgraded the payment, the
-    // fingerprint has one row per channel and the unfiltered lookup may return the other one.
-    const existing = this.obsRepo.findByFingerprint(normalizedObs.fingerprintHash, normalizedObs.source)
-      || this.obsRepo.findByFingerprint(normalizedObs.fingerprintHash);
+    // Look up this channel family first: once a second channel family has upgraded the payment, the
+    // fingerprint has one row per channel family and the unfiltered lookup may return the other one.
+    const existingSameFamily = this.obsRepo.findByFingerprintOrFamily
+      ? this.obsRepo.findByFingerprintOrFamily(normalizedObs.fingerprintHash, normalizedObs.source)
+      : this.obsRepo.findByFingerprint(normalizedObs.fingerprintHash, normalizedObs.source);
+    const existing = existingSameFamily || this.obsRepo.findByFingerprint(normalizedObs.fingerprintHash);
     if (existing) {
-      // If observation came from the SAME source, drop as redundant duplicate
-      if (existing.source === normalizedObs.source) {
+      // If observation came from the SAME channel family (e.g. SMS_GATEWAY + ANDROID_OBSERVER or GOOGLE_MESSAGES),
+      // drop as a redundant duplicate so same-channel-family events never falsely upgrade to Level 2.
+      if (existing.source === normalizedObs.source || getChannelFamily(existing.source) === incomingFamily) {
         if (this.auditRepo) {
           this.auditRepo.log({
             entityType: 'PAYMENT_OBSERVATION',
             entityId: existing.id,
             action: 'DUPLICATE_OBSERVATION_DROPPED',
             actorType: 'OBSERVER',
-            details: { fingerprintHash: normalizedObs.fingerprintHash, source: normalizedObs.source }
+            details: {
+              fingerprintHash: normalizedObs.fingerprintHash,
+              source: normalizedObs.source,
+              existingSource: existing.source,
+              channelFamily: incomingFamily
+            }
           });
         }
         return {
@@ -146,10 +184,38 @@ export class AttributionEngine {
         };
       }
 
-      // If observation came from a NEW, DIFFERENT channel and payment was already attributed:
+      // If observation came from a NEW, INDEPENDENT channel family (SMS vs GMAIL) and payment was already attributed:
       // Upgrade verification tier to Level 2 (Dual Verification)!
       if (existing.attributedPaymentId) {
         const targetSession = this.sessionRepo.findById(existing.attributedPaymentId);
+        // Keep MANUAL_REVIEW sessions held until verified by authoritative bank statement
+        if (targetSession && targetSession.status === PaymentStatus.MANUAL_REVIEW) {
+          return {
+            attributed: false,
+            duplicate: false,
+            lateMatch: false,
+            ambiguous: true,
+            paymentSessionId: targetSession.id,
+            observationId: existing.id,
+            outcomeStatus: PaymentStatus.MANUAL_REVIEW,
+            reason: 'SESSION_HELD_IN_MANUAL_REVIEW'
+          };
+        }
+        // If target session already has a verification source from this channel family, drop as duplicate
+        if (
+          targetSession &&
+          Array.isArray(targetSession.verificationSources) &&
+          targetSession.verificationSources.some(s => getChannelFamily(s) === incomingFamily)
+        ) {
+          return {
+            attributed: false,
+            duplicate: true,
+            lateMatch: false,
+            paymentSessionId: targetSession.id,
+            observationId: existing.id,
+            outcomeStatus: ObservationAttributionStatus.DUPLICATE_IGNORED
+          };
+        }
         const closedWithoutUpgrade = targetSession
           && isTerminalStatus(targetSession.status)
           && targetSession.status !== PaymentStatus.SUCCESS
@@ -157,7 +223,7 @@ export class AttributionEngine {
           && targetSession.status !== PaymentStatus.RECONCILED;
         if (closedWithoutUpgrade) {
           const savedObs = this.obsRepo.create(normalizedObs);
-          this.obsRepo.markLateUnmatched(savedObs.id);
+          this.obsRepo.markLateUnmatched(savedObs.id, targetSession.id);
           if (this.auditRepo) {
             this.auditRepo.log({
               merchantId: targetSession.merchantId,
@@ -298,6 +364,19 @@ export class AttributionEngine {
     let currentSession = null;
     if (normalizedObs.rawPayload?.targetSessionId) {
       currentSession = this.sessionRepo.findById(normalizedObs.rawPayload.targetSessionId);
+      if (currentSession && currentSession.status === PaymentStatus.MANUAL_REVIEW) {
+        this.obsRepo.markAmbiguous(savedObs.id);
+        return {
+          attributed: false,
+          duplicate: false,
+          lateMatch: false,
+          ambiguous: true,
+          paymentSessionId: currentSession.id,
+          observationId: savedObs.id,
+          outcomeStatus: PaymentStatus.MANUAL_REVIEW,
+          reason: 'SESSION_HELD_IN_MANUAL_REVIEW'
+        };
+      }
     }
     if (currentSession?.method === 'MANUAL_UPI') {
       if (this.auditRepo) this.auditRepo.log({
@@ -318,15 +397,6 @@ export class AttributionEngine {
       };
     }
     if (!currentSession || (currentSession.amountPaise !== normalizedObs.amountPaise)) {
-      currentSession = this.sessionRepo.findCurrentActiveOrProcessing(normalizedObs.receivingAccountId);
-    }
-    if (currentSession?.method === 'MANUAL_UPI') {
-      if (this.auditRepo) this.auditRepo.log({ merchantId: currentSession.merchantId, entityType: 'PAYMENT_SESSION', entityId: currentSession.id,
-        action: 'AUTOMATIC_OBSERVATION_IGNORED_FOR_MANUAL_UPI', actorType: 'OBSERVER', details: { observationId: savedObs.id, source: normalizedObs.source } });
-      return { attributed: false, duplicate: false, lateMatch: false, observationId: savedObs.id,
-        outcomeStatus: ObservationAttributionStatus.UNATTRIBUTED, reason: 'MANUAL_UPI_REQUIRES_ADMIN_BANK_VERIFICATION' };
-    }
-    if (currentSession && currentSession.amountPaise !== normalizedObs.amountPaise) {
       const matchRows = this.sessionRepo.db.query(`
         SELECT * FROM payment_sessions
         WHERE receiving_account_id = ? AND status IN ('ACTIVE', 'PROCESSING') AND method <> 'MANUAL_UPI' AND amount_paise = ?
@@ -340,28 +410,21 @@ export class AttributionEngine {
       }
       if (matchRows.length === 1) {
         currentSession = this.sessionRepo.mapRow(matchRows[0]);
+      } else if (!currentSession) {
+        currentSession = this.sessionRepo.findCurrentActiveOrProcessing(normalizedObs.receivingAccountId);
       }
-    }
-    if (!currentSession) {
-      // Fallback: match the amount, but only inside the receiving account the observer
-      // reported. Matching "any ACTIVE session on the gateway with this amount" could settle a
-      // different merchant's live payment (cross-merchant hijack), so it is intentionally gone.
-      const candidates = this.sessionRepo.db.query(`
+    } else if (!normalizedObs.rawPayload?.targetSessionId) {
+      // Even if targetSessionId was not specified and currentSession matched amount, verify no other live session shares this amount
+      const matchRows = this.sessionRepo.db.query(`
         SELECT * FROM payment_sessions
-        WHERE receiving_account_id = ?
-          AND status IN ('ACTIVE', 'PROCESSING')
-          AND method <> 'MANUAL_UPI'
-          AND amount_paise = ?
+        WHERE receiving_account_id = ? AND status IN ('ACTIVE', 'PROCESSING') AND amount_paise = ?
       `, [normalizedObs.receivingAccountId, Number(normalizedObs.amountPaise)]);
-      if (candidates.length > 1) {
+      if (matchRows.length > 1) {
         return this.holdAmbiguous(
           savedObs,
-          candidates.map(row => this.sessionRepo.mapRow(row)),
+          matchRows.map(row => this.sessionRepo.mapRow(row)),
           'MULTIPLE_LIVE_AMOUNT_MATCHES'
         );
-      }
-      if (candidates.length === 1) {
-        currentSession = this.sessionRepo.mapRow(candidates[0]);
       }
     }
 
@@ -459,13 +522,46 @@ export class AttributionEngine {
       if (isEligibleStatus && isAmountMatch && isTimeValid) {
         const wasActive = currentSession.status === PaymentStatus.ACTIVE;
 
+        // Check if currentSession already has an attributed primary observation (e.g. during grace window or REQUIRE_DUAL_CHANNEL)
+        const primaryObs = currentSession.attributedObservationId
+          ? this.obsRepo.findById(currentSession.attributedObservationId)
+          : null;
+
+        if (primaryObs) {
+          const hasConflictingUtr = Boolean(
+            primaryObs.bankReferenceNumber &&
+            savedObs.bankReferenceNumber &&
+            String(primaryObs.bankReferenceNumber).trim() !== String(savedObs.bankReferenceNumber).trim()
+          );
+          if (hasConflictingUtr) {
+            const pendingGrace = this.pendingGraceTimers.get(currentSession.id);
+            if (pendingGrace) {
+              clearTimeout(pendingGrace);
+              this.pendingGraceTimers.delete(currentSession.id);
+            }
+            return this.holdAmbiguous(savedObs, [currentSession], 'CONFLICTING_UTR_ON_SESSION');
+          }
+
+          if (getChannelFamily(primaryObs.source) === incomingFamily) {
+            this.obsRepo.markDuplicate(savedObs.id);
+            return {
+              attributed: false,
+              duplicate: true,
+              lateMatch: false,
+              paymentSessionId: currentSession.id,
+              observationId: savedObs.id,
+              outcomeStatus: ObservationAttributionStatus.DUPLICATE_IGNORED
+            };
+          }
+        }
+
         // Check if there is already an active grace period awaiting second source for this session
         const pendingGrace = this.pendingGraceTimers.get(currentSession.id);
         if (pendingGrace) {
           clearTimeout(pendingGrace);
           this.pendingGraceTimers.delete(currentSession.id);
 
-          // Second source confirmed within 5-second grace window -> LEVEL 2 DUAL VERIFICATION!
+          // Second independent source confirmed within 5-second grace window -> LEVEL 2 DUAL VERIFICATION!
           let verifyResult;
           try {
             verifyResult = this.sessionRepo.recordVerificationSource(
@@ -475,10 +571,6 @@ export class AttributionEngine {
               { finalizeSuccess: true }
             );
 
-            // Check if primary observation already holds the attributed bank_reference_number
-            const primaryObs = currentSession.attributedObservationId
-              ? this.obsRepo.findById(currentSession.attributedObservationId)
-              : null;
             const sameUtrAsPrimary = Boolean(
               primaryObs &&
               primaryObs.bankReferenceNumber &&
@@ -863,6 +955,22 @@ export class AttributionEngine {
 
       // Temporal check: observation must have been observed during this session's window
       if (!isUtrConflict && normalizedObs.observedAt >= sessionSlotStart && normalizedObs.observedAt <= sessionCompleted) {
+        const mappedRecentSession = this.sessionRepo.mapRow(recentSuccessSession);
+        if (
+          Array.isArray(mappedRecentSession.verificationSources) &&
+          mappedRecentSession.verificationSources.some(s => getChannelFamily(s) === incomingFamily)
+        ) {
+          this.obsRepo.markDuplicate(savedObs.id);
+          return {
+            attributed: false,
+            duplicate: true,
+            lateMatch: false,
+            paymentSessionId: recentSuccessSession.id,
+            observationId: savedObs.id,
+            outcomeStatus: ObservationAttributionStatus.DUPLICATE_IGNORED
+          };
+        }
+
         const verifyResult = this.sessionRepo.recordVerificationSource(
           recentSuccessSession.id,
           normalizedObs.source,
@@ -926,8 +1034,8 @@ export class AttributionEngine {
     const lateMatchedSession = lateMatches[0];
 
     if (lateMatchedSession) {
-      // Mark observation as LATE_UNMATCHED
-      this.obsRepo.markLateUnmatched(savedObs.id);
+      // Mark observation as LATE_UNMATCHED and preserve candidate session ID in raw_payload
+      this.obsRepo.markLateUnmatched(savedObs.id, lateMatchedSession.id);
 
       if (this.auditRepo) {
         this.auditRepo.log({
@@ -987,6 +1095,106 @@ export class AttributionEngine {
       lateMatch: false,
       observationId: savedObs.id,
       outcomeStatus: ObservationAttributionStatus.UNATTRIBUTED
+    };
+  }
+
+  /**
+   * Re-evaluates unmatched (UNATTRIBUTED / LATE_UNMATCHED) observations for a receiving account
+   * against eligible sessions to surface late-payment correlation or manual review holds.
+   * Never auto-confirms an immutable terminal session (EXPIRED/FAILED/CANCELLED).
+   * @param {string} receivingAccountId
+   */
+  reconcileUnmatchedObservations(receivingAccountId) {
+    const unattributed = this.obsRepo.findUnattributed(receivingAccountId);
+    const results = [];
+
+    for (const obs of unattributed) {
+      // 1. Check live sessions with matching amount
+      const liveRows = this.sessionRepo.db.query(`
+        SELECT * FROM payment_sessions
+        WHERE receiving_account_id = ? AND status IN ('ACTIVE', 'PROCESSING') AND amount_paise = ?
+      `, [receivingAccountId, Number(obs.amountPaise)]);
+
+      if (liveRows.length > 1) {
+        const held = this.holdAmbiguous(
+          obs,
+          liveRows.map(r => this.sessionRepo.mapRow(r)),
+          'MULTIPLE_LIVE_AMOUNT_MATCHES'
+        );
+        results.push({ observationId: obs.id, action: 'HELD_AMBIGUOUS', ...held });
+        continue;
+      }
+
+      // 2. Check recently expired or failed sessions (< 30 mins)
+      const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+      const recentExpired = this.sessionRepo.findRecentlyExpiredOrFailed(receivingAccountId, thirtyMinutesAgo);
+      const lateMatches = recentExpired.filter(s => s.amountPaise === obs.amountPaise);
+
+      if (lateMatches.length > 1) {
+        const held = this.holdAmbiguous(obs, lateMatches, 'MULTIPLE_LATE_AMOUNT_MATCHES');
+        results.push({ observationId: obs.id, action: 'HELD_AMBIGUOUS', ...held });
+        continue;
+      }
+
+      if (lateMatches.length === 1) {
+        const lateSession = lateMatches[0];
+        this.obsRepo.markLateUnmatched(obs.id, lateSession.id);
+        if (this.auditRepo) {
+          this.auditRepo.log({
+            merchantId: lateSession.merchantId,
+            entityType: 'PAYMENT_SESSION',
+            entityId: lateSession.id,
+            action: 'LATE_OBSERVATION_RECONCILED_TO_TICKET',
+            actorType: 'SYSTEM',
+            details: {
+              observationId: obs.id,
+              source: obs.source,
+              amountPaise: obs.amountPaise.toString(),
+              sessionStatus: lateSession.status
+            }
+          });
+        }
+        if (this.ticketRepo && lateSession.customerId) {
+          this.ticketRepo.createTicket({
+            merchantId: lateSession.merchantId,
+            customerId: lateSession.customerId,
+            paymentId: lateSession.id,
+            subject: `[LATE PAYMENT DETECTED] Order #${lateSession.orderId}`,
+            status: TicketStatus.OPEN,
+            initialMessage: {
+              senderType: SenderType.ADMIN,
+              senderId: lateSession.merchantId,
+              message: `A delayed payment observation of ${obs.amountPaise / 100n} INR was matched during unmatched reconciliation after session ${lateSession.id} ended with status ${lateSession.status}.`
+            }
+          });
+        }
+        this.eventEmitter.emit('PAYMENT.LATE_DETECTED', {
+          paymentId: lateSession.id,
+          orderId: lateSession.orderId,
+          merchantId: lateSession.merchantId,
+          amountPaise: obs.amountPaise,
+          observationId: obs.id
+        });
+        results.push({
+          observationId: obs.id,
+          action: 'MARKED_LATE_UNMATCHED',
+          paymentSessionId: lateSession.id,
+          outcomeStatus: ObservationAttributionStatus.LATE_UNMATCHED
+        });
+        continue;
+      }
+
+      results.push({
+        observationId: obs.id,
+        action: 'REMAINS_UNATTRIBUTED',
+        outcomeStatus: ObservationAttributionStatus.UNATTRIBUTED
+      });
+    }
+
+    return {
+      processed: unattributed.length,
+      reconciledCount: results.filter(r => r.action !== 'REMAINS_UNATTRIBUTED').length,
+      results
     };
   }
 }

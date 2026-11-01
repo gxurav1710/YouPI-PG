@@ -26,6 +26,24 @@ describe('Android Payment Observer Integration Tests', () => {
     testDb.close();
   });
 
+  async function ensurePaired() {
+    if (!driver.deviceId || !driver.signingKey) {
+      const enrollmentSecret = resolveSecret('android_enrollment_secret', 'ANDROID_ENROLLMENT_SECRET');
+      await driver.pair(enrollmentSecret);
+    }
+  }
+
+  function resetReceivingSlot(receivingAccountId = '00000000-0000-0000-0000-000000000002') {
+    testDb.execute(
+      "UPDATE payment_sessions SET status = 'EXPIRED' WHERE receiving_account_id = ? AND status IN ('ACTIVE', 'PROCESSING')",
+      [receivingAccountId]
+    );
+    testDb.execute(
+      'UPDATE payment_receiving_accounts SET is_slot_busy = 0, current_active_session_id = NULL WHERE id = ?',
+      [receivingAccountId]
+    );
+  }
+
   test('rejects pairing with invalid enrollment token', async () => {
     await assert.rejects(
       () => driver.pair('invalid_token_123'),
@@ -46,12 +64,14 @@ describe('Android Payment Observer Integration Tests', () => {
   });
 
   test('sends heartbeat acknowledging liveness', async () => {
+    await ensurePaired();
     const hbResult = await driver.sendHeartbeat();
     assert.equal(hbResult.status, 'HEARTBEAT_ACK');
     assert.ok(hbResult.timestamp);
   });
 
   test('rejects observation with expired/drifted timestamp (Replay Protection)', async () => {
+    await ensurePaired();
     // Timestamp 2 minutes in the past (> 60s drift)
     const oldTimestamp = Date.now() - 120000;
     const res = await driver.submitObservation({
@@ -64,6 +84,8 @@ describe('Android Payment Observer Integration Tests', () => {
   });
 
   test('submits valid HMAC-signed observation and confirms payment in Payment API', async () => {
+    await ensurePaired();
+    resetReceivingSlot();
     // 1. Create and activate a payment session for ₹350
     const session = apiInstance.app.context.sessionRepo.create({
       merchantId: '00000000-0000-0000-0000-000000000001',
@@ -96,6 +118,7 @@ describe('Android Payment Observer Integration Tests', () => {
   });
 
   test('Issue #61: rejects notification observation when rawNotification has missing or empty package', async () => {
+    await ensurePaired();
     const resWithoutPkg = await driver.submitObservation({
       amount: '100.00',
       receivingAccountId: '00000000-0000-0000-0000-000000000002',
@@ -109,6 +132,7 @@ describe('Android Payment Observer Integration Tests', () => {
   });
 
   test('Issue #61: rejects notification observation from untrusted/unallowed package name', async () => {
+    await ensurePaired();
     const resUntrusted = await driver.submitObservation({
       amount: '100.00',
       receivingAccountId: '00000000-0000-0000-0000-000000000002',
@@ -122,6 +146,8 @@ describe('Android Payment Observer Integration Tests', () => {
   });
 
   test('submits observation with clientMessageId and returns it in response', async () => {
+    await ensurePaired();
+    resetReceivingSlot();
     const session = apiInstance.app.context.sessionRepo.create({
       merchantId: '00000000-0000-0000-0000-000000000001',
       receivingAccountId: '00000000-0000-0000-0000-000000000002',
@@ -146,6 +172,8 @@ describe('Android Payment Observer Integration Tests', () => {
   });
 
   test('submits raw bank SMS with clientMessageId and processes through pipeline', async () => {
+    await ensurePaired();
+    resetReceivingSlot();
     const session = apiInstance.app.context.sessionRepo.create({
       merchantId: '00000000-0000-0000-0000-000000000001',
       receivingAccountId: '00000000-0000-0000-0000-000000000002',
@@ -165,6 +193,19 @@ describe('Android Payment Observer Integration Tests', () => {
     assert.equal(res.status, 200);
     assert.equal(res.body.accepted, true);
     assert.equal(res.body.clientMessageId, clientMsgId);
+
+    // Also verify clientMessageId is echoed on rejected/unresolved poller responses (400)
+    const rejectedMsgId = 'sms-uuid-400-rejected';
+    const rejectedRes = await driver.submitObservation({
+      amount: '999.00',
+      receivingAccountId: '00000000-0000-0000-0000-000000000002',
+      utr: 'UTR-NO-ACTIVE-999',
+      clientMessageId: rejectedMsgId,
+      notificationText: 'Payment of ₹999 received via UPI'
+    });
+    assert.equal(rejectedRes.status, 400);
+    assert.equal(rejectedRes.body.accepted, false);
+    assert.equal(rejectedRes.body.clientMessageId, rejectedMsgId);
   });
 
   test('on-device bank SMS filter logic validates institutional senders and rejects personal numbers', () => {

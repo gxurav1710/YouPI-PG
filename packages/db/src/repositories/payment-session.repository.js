@@ -571,12 +571,15 @@ export class PaymentSessionRepository {
       sourcesSet.add(source);
       const sources = Array.from(sourcesSet);
 
-      const level = Math.min(2, sources.length); // 1 or 2 (2-Layer Engine: SMS + Gmail)
-      const sourceLabels = sources.map(s => {
+      const channelFamilies = new Set(
+        sources.map(s => (String(s || '').trim().toUpperCase() === 'GMAIL' ? 'GMAIL' : 'SMS'))
+      );
+      const level = Math.min(2, channelFamilies.size); // 1 or 2 (2-Layer Engine: independent SMS + Gmail families)
+      const sourceLabels = Array.from(new Set(sources.map(s => {
         if (s === 'GOOGLE_MESSAGES') return 'SMS';
         if (s === 'GMAIL') return 'Gmail';
         return s;
-      });
+      })));
 
       let tag = `Single Verification (${sourceLabels.join(', ')})`;
       if (level >= 2) {

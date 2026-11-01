@@ -199,7 +199,43 @@ describe('bank statement reconciliation', () => {
       csvText: hdfcCsv([creditRow({ utr: '523456789012' })])
     });
     assert.equal(result.reconciled, 1);
-    assert.equal(sessionRepo.findById(session.id).status, PaymentStatus.RECONCILED);
+    const reconciledSession = sessionRepo.findById(session.id);
+    assert.equal(reconciledSession.status, PaymentStatus.RECONCILED);
+    assert.ok(reconciledSession.attributedObservationId, 'Reconciled MANUAL_REVIEW session must link attributedObservationId');
+  });
+
+  test('corroborates LATE_UNMATCHED observations during statement import and emits PAYMENT.UNMATCHED_RECONCILIATION_NEEDED', () => {
+    const obsRepo = new ObservationRepository(db);
+    const expiredSession = sessionRepo.create({
+      merchantId,
+      receivingAccountId: ACCOUNT_ID,
+      orderId: 'ORD-LATE-STMT-1',
+      amountPaise: 49900n
+    });
+    sessionRepo.acquireSlotAtomic(expiredSession.id, ACCOUNT_ID, 300000);
+    sessionRepo.transitionToTerminal(expiredSession.id, PaymentStatus.EXPIRED);
+
+    const lateObs = obsRepo.create({
+      receivingAccountId: ACCOUNT_ID,
+      source: 'GOOGLE_MESSAGES',
+      amountPaise: 49900n,
+      observedAt: new Date(),
+      bankReferenceNumber: '623456789012',
+      fingerprintHash: 'fp-late-unmatched-stmt',
+      rawPayload: {}
+    });
+    obsRepo.markLateUnmatched(lateObs.id, expiredSession.id);
+
+    const result = engine.importCsv({
+      receivingAccountId: ACCOUNT_ID,
+      csvText: hdfcCsv([creditRow({ utr: '623456789012' })])
+    });
+    assert.equal(result.unmatched, 1);
+    assert.equal(result.lines[0].outcome, 'UNMATCHED');
+    assert.equal(result.lines[0].observationId, lateObs.id);
+    assert.equal(result.lines[0].candidatePaymentSessionId, expiredSession.id);
+    assert.equal(sessionRepo.findById(expiredSession.id).status, PaymentStatus.EXPIRED);
+    assert.equal(events.filter(e => e.event === 'PAYMENT.UNMATCHED_RECONCILIATION_NEEDED').length, 1);
   });
 
   test('a statement line does not settle a session that was never observed', () => {
