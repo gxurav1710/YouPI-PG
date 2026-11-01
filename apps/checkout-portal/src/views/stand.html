@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{BUSINESS_NAME}} — Smart Payment Stand &amp; Soundbox</title>
+  <style>
+    :root {
+      --primary: {{PRIMARY_COLOR}};
+      --bg: #090d16;
+      --surface: #111827;
+      --surface-card: #1f2937;
+      --border: #374151;
+      --text: #f9fafb;
+      --text-muted: #9ca3af;
+      --success: #10b981;
+      --success-glow: rgba(16, 185, 129, 0.25);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 1.5rem 1rem;
+    }
+
+    .stand-header {
+      width: 100%;
+      max-width: 900px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .brand-title {
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .brand-subtitle {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 0.2rem;
+    }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.4rem 0.8rem;
+      border-radius: 9999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 8px #10b981;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.9); }
+    }
+
+    .btn {
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      border: 1px solid transparent;
+      transition: all 0.15s ease;
+    }
+    .btn-secondary {
+      background: var(--surface-card);
+      color: var(--text);
+      border-color: var(--border);
+    }
+    .btn-secondary:hover {
+      background: #374151;
+    }
+    .btn-primary {
+      background: var(--primary);
+      color: #ffffff;
+    }
+    .btn-primary:hover {
+      filter: brightness(1.15);
+    }
+
+    .main-layout {
+      width: 100%;
+      max-width: 900px;
+      display: grid;
+      grid-template-columns: 1fr 1.25fr;
+      gap: 1.5rem;
+    }
+    @media (max-width: 768px) {
+      .main-layout { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1.5rem;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+    }
+
+    /* Cashier Control Panel */
+    .panel-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+      color: #ffffff;
+    }
+    .panel-desc {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-bottom: 1.25rem;
+    }
+    .tab-toggle {
+      display: flex;
+      background: var(--surface-card);
+      padding: 4px;
+      border-radius: 10px;
+      margin-bottom: 1.25rem;
+      gap: 4px;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 0.5rem;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .tab-btn.active {
+      background: var(--primary);
+      color: #ffffff;
+    }
+
+    .amount-input-group {
+      margin-bottom: 1rem;
+    }
+    .amount-label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 0.4rem;
+    }
+    .input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+    .currency-symbol {
+      position: absolute;
+      left: 1rem;
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: #94a3b8;
+    }
+    .amount-field {
+      width: 100%;
+      padding: 0.75rem 1rem 0.75rem 2.8rem;
+      font-size: 1.6rem;
+      font-weight: 800;
+      color: #ffffff;
+      background: var(--surface-card);
+      border: 2px solid var(--border);
+      border-radius: 10px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .amount-field:focus {
+      border-color: var(--primary);
+    }
+    .quick-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .chip {
+      padding: 0.4rem 0.8rem;
+      border-radius: 8px;
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      color: #e2e8f0;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .chip:hover {
+      background: #374151;
+      border-color: #64748b;
+    }
+
+    .btn-generate {
+      width: 100%;
+      padding: 0.9rem;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--primary) 0%, #3b156b 100%);
+      color: #ffffff;
+      font-size: 1rem;
+      font-weight: 700;
+      border: none;
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(95, 37, 159, 0.4);
+      transition: transform 0.1s, filter 0.15s;
+    }
+    .btn-generate:hover {
+      filter: brightness(1.1);
+      transform: translateY(-1px);
+    }
+
+    .soundbox-settings {
+      margin-top: 1.5rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .soundbox-label {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 44px;
+      height: 24px;
+    }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+      background-color: #374151; transition: .3s; border-radius: 24px;
+    }
+    .slider:before {
+      position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px;
+      background-color: white; transition: .3s; border-radius: 50%;
+    }
+    input:checked + .slider { background-color: #10b981; }
+    input:checked + .slider:before { transform: translateX(20px); }
+
+    /* Customer Display Stand Card */
+    .stand-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      background: #ffffff;
+      color: #0f172a;
+      border-radius: 20px;
+      padding: 1.75rem 1.5rem;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+      position: relative;
+      overflow: hidden;
+    }
+    .stand-top-banner {
+      width: 100%;
+      background: var(--primary);
+      color: #ffffff;
+      padding: 0.6rem 1rem;
+      border-radius: 12px;
+      font-weight: 700;
+      font-size: 0.95rem;
+      margin-bottom: 1.25rem;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .qr-container {
+      width: 280px;
+      height: 280px;
+      background: #ffffff;
+      border: 3px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1rem;
+      box-shadow: 0 8px 16px rgba(0,0,0,0.06);
+    }
+    .qr-container svg {
+      width: 100%;
+      height: 100%;
+    }
+    .bill-amount-display {
+      font-size: 2.2rem;
+      font-weight: 900;
+      color: #0f172a;
+      margin-bottom: 0.2rem;
+    }
+    .bill-note-display {
+      font-size: 0.9rem;
+      color: #64748b;
+      margin-bottom: 0.75rem;
+    }
+
+    .acceptance-notice {
+      background: #ecfdf5;
+      border: 1px solid #a7f3d0;
+      color: #065f46;
+      border-radius: 8px;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      width: 100%;
+    }
+
+    .supported-apps-row {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1rem;
+    }
+    .app-tag {
+      font-size: 0.75rem;
+      font-weight: 800;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      background: #f1f5f9;
+      color: #334155;
+    }
+    .vpa-footer-text {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: #334155;
+    }
+    .phonepe-footer-text {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--primary);
+      margin-top: 0.2rem;
+    }
+
+    /* Paid Celebration Overlay */
+    .success-overlay {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: #064e3b;
+      color: #ffffff;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      z-index: 10;
+      text-align: center;
+    }
+    .success-overlay.active {
+      display: flex;
+      animation: fadeIn 0.3s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: scale(0.95); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    .success-checkmark {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: #10b981;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 40px;
+      margin-bottom: 1.25rem;
+      box-shadow: 0 0 30px rgba(16, 185, 129, 0.5);
+    }
+    .success-title {
+      font-size: 1.8rem;
+      font-weight: 800;
+      margin-bottom: 0.5rem;
+    }
+    .success-amount {
+      font-size: 2.4rem;
+      font-weight: 900;
+      color: #6ee7b7;
+      margin-bottom: 0.5rem;
+    }
+    .success-utr {
+      font-size: 0.95rem;
+      color: #a7f3d0;
+      font-family: monospace;
+      margin-bottom: 1.5rem;
+      background: rgba(0,0,0,0.25);
+      padding: 0.4rem 0.8rem;
+      border-radius: 6px;
+    }
+    .btn-reset {
+      background: #ffffff;
+      color: #064e3b;
+      font-size: 1rem;
+      font-weight: 700;
+      padding: 0.75rem 2rem;
+      border-radius: 10px;
+      border: none;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-reset:hover {
+      background: #f0fdf4;
+      transform: scale(1.03);
+    }
+  </style>
+</head>
+<body>
+
+  <header class="stand-header">
+    <div>
+      <div class="brand-title">
+        <span>🪧</span>
+        <span>{{BUSINESS_NAME}}</span>
+      </div>
+      <div class="brand-subtitle">Smart Payment Stand &amp; Digital Soundbox • 0% Fees</div>
+    </div>
+    <div class="header-actions">
+      <div class="status-pill">
+        <span class="status-dot"></span>
+        <span>Observer Live</span>
+      </div>
+      <a href="/stand/print" target="_blank" class="btn btn-secondary">
+        <span>🖨️</span>
+        <span>Print Acrylic Stand</span>
+      </a>
+    </div>
+  </header>
+
+  <main class="main-layout">
+    <!-- Cashier Control Panel -->
+    <div class="card">
+      <div class="panel-title">Billing Desk Controller</div>
+      <div class="panel-desc">Enter order amount or switch to open amount static QR.</div>
+
+      <div class="tab-toggle">
+        <button class="tab-btn active" id="tabDynamic" onclick="switchStandMode('dynamic')">Dynamic Bill Amount</button>
+        <button class="tab-btn" id="tabStatic" onclick="switchStandMode('static')">Open Amount Static Stand</button>
+      </div>
+
+      <div id="dynamicControls">
+        <div class="amount-input-group">
+          <label class="amount-label" for="amountInput">Bill Amount (₹):</label>
+          <div class="input-wrapper">
+            <span class="currency-symbol">₹</span>
+            <input type="number" id="amountInput" class="amount-field" value="2500" min="1" max="100000" step="1" />
+          </div>
+        </div>
+
+        <div class="quick-chips">
+          <button class="chip" onclick="setAmount(500)">+ ₹500</button>
+          <button class="chip" onclick="setAmount(1000)">+ ₹1,000</button>
+          <button class="chip" onclick="setAmount(2000)">+ ₹2,000</button>
+          <button class="chip" onclick="setAmount(3500)">₹3,500</button>
+          <button class="chip" onclick="setAmount(5000)">₹5,000</button>
+          <button class="chip" onclick="setAmount(10000)">₹10,000</button>
+        </div>
+
+        <button class="btn-generate" onclick="generateDynamicQr()">⚡ Display Dynamic QR</button>
+      </div>
+
+      <div id="staticControls" style="display:none;">
+        <p style="font-size:0.9rem; color:var(--text-muted); line-height:1.5; margin-bottom:1rem;">
+          In <strong>Static Stand Mode</strong>, the customer points their PhonePe or GPay camera at the QR code and enters any amount manually.
+        </p>
+        <p style="font-size:0.85rem; color:#38bdf8; background:#0c4a6e; padding:0.75rem; border-radius:8px;">
+          ✓ Camera scanning accepts payments of any amount (above ₹2,000) without gallery limits.
+        </p>
+      </div>
+
+      <div class="soundbox-settings">
+        <div class="soundbox-label">
+          <span>🔊</span>
+          <span>Voice Soundbox Announcements</span>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="voiceToggle" checked />
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Customer-Facing Stand View -->
+    <div class="stand-card">
+      <div class="stand-top-banner">
+        <span>✨</span>
+        <span>SCAN TO PAY WITH ANY UPI APP</span>
+      </div>
+
+      <div id="amountDisplaySection">
+        <div class="bill-amount-display" id="displayAmount">₹2,500.00</div>
+        <div class="bill-note-display" id="displayNote">Order Ref: STAND-1001</div>
+      </div>
+
+      <div class="acceptance-notice">
+        📷 Point Phone Camera to Pay • Accepts &gt; ₹2,000 (No Gallery Limit)
+      </div>
+
+      <div class="qr-container" id="qrContainer">
+        <!-- SVG QR code rendered dynamically -->
+      </div>
+
+      <div class="supported-apps-row">
+        <span class="app-tag" style="color:#5f259f;">PhonePe</span>
+        <span class="app-tag" style="color:#1a73e8;">Google Pay</span>
+        <span class="app-tag" style="color:#00baf2;">Paytm</span>
+        <span class="app-tag" style="color:#00838f;">BHIM UPI</span>
+        <span class="app-tag">CRED</span>
+      </div>
+
+      <div class="vpa-footer-text">UPI ID: <span id="vpaDisplay">{{PAYEE_VPA}}</span></div>
+      <div class="phonepe-footer-text" id="phonepeDisplay">{{PHONEPE_MOBILE_DISPLAY}}</div>
+
+      <!-- Paid Celebration Overlay -->
+      <div class="success-overlay" id="successOverlay">
+        <div class="success-checkmark">✓</div>
+        <div class="success-title">Payment Verified!</div>
+        <div class="success-amount" id="successAmount">₹2,500.00</div>
+        <div class="success-utr" id="successUtr">UTR: 123456789012</div>
+        <button class="btn-reset" onclick="resetForNextBill()">Next Customer (Reset)</button>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const CONFIG = {
+      payeeVpa: '{{PAYEE_VPA}}',
+      payeeName: '{{BUSINESS_NAME}}',
+      phonePeMobile: '{{PHONEPE_MOBILE}}',
+      primaryColor: '{{PRIMARY_COLOR}}'
+    };
+
+    let currentMode = 'dynamic';
+    let currentPaymentId = null;
+    let pollInterval = null;
+
+    function setAmount(val) {
+      document.getElementById('amountInput').value = val;
+      generateDynamicQr();
+    }
+
+    function switchStandMode(mode) {
+      currentMode = mode;
+      document.getElementById('tabDynamic').classList.toggle('active', mode === 'dynamic');
+      document.getElementById('tabStatic').classList.toggle('active', mode === 'static');
+      document.getElementById('dynamicControls').style.display = mode === 'dynamic' ? 'block' : 'none';
+      document.getElementById('staticControls').style.display = mode === 'static' ? 'block' : 'none';
+
+      if (mode === 'static') {
+        renderStaticStand();
+      } else {
+        generateDynamicQr();
+      }
+    }
+
+    function renderStaticStand() {
+      document.getElementById('displayAmount').textContent = 'Open Amount';
+      document.getElementById('displayNote').textContent = 'Customer enters amount in PhonePe / GPay';
+      fetch('/stand/qr.svg?mode=static')
+        .then(r => r.text())
+        .then(svg => {
+          document.getElementById('qrContainer').innerHTML = svg;
+        });
+    }
+
+    function generateDynamicQr() {
+      const amount = parseFloat(document.getElementById('amountInput').value) || 100;
+      const orderId = 'STAND-' + Date.now().toString().slice(-6);
+
+      document.getElementById('displayAmount').textContent = '₹' + amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      document.getElementById('displayNote').textContent = 'Order Ref: ' + orderId;
+
+      // Request QR SVG with amount
+      fetch(`/stand/qr.svg?amount=${amount}&orderId=${orderId}`)
+        .then(r => r.text())
+        .then(svg => {
+          document.getElementById('qrContainer').innerHTML = svg;
+        });
+
+      // Also create payment session via API for observer matching
+      createPaymentSession(orderId, amount);
+    }
+
+    async function createPaymentSession(orderId, amount) {
+      if (pollInterval) clearInterval(pollInterval);
+      try {
+        const res = await fetch('/api/v1/payments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            orderId: orderId,
+            amount: amount.toFixed(2),
+            method: 'UPI',
+            autoActivate: true
+          })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          currentPaymentId = data.paymentId;
+          startPollingPayment(currentPaymentId, amount);
+        }
+      } catch (e) {
+        console.warn('Session tracking notice:', e.message);
+      }
+    }
+
+    function startPollingPayment(paymentId, amount) {
+      if (pollInterval) clearInterval(pollInterval);
+      pollInterval = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/v1/payments/${paymentId}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.status === 'SUCCESS' || data.status === 'OBSERVED_SUCCESS' || data.status === 'RECONCILED') {
+              clearInterval(pollInterval);
+              onPaymentSuccess(data.amount || amount, data.utr || data.bankReferenceNumber || 'Verified');
+            }
+          }
+        } catch {}
+      }, 2500);
+    }
+
+    function onPaymentSuccess(amount, utr) {
+      const formatted = typeof amount === 'number' ? '₹' + amount.toLocaleString('en-IN') : '₹' + amount;
+      document.getElementById('successAmount').textContent = formatted;
+      document.getElementById('successUtr').textContent = 'UTR: ' + (utr || '123456789012');
+      document.getElementById('successOverlay').classList.add('active');
+
+      // Digital Soundbox Announcement
+      if (document.getElementById('voiceToggle').checked) {
+        playVoiceAlert(amount);
+      }
+    }
+
+    function playVoiceAlert(amount) {
+      try {
+        if ('speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+          const cleanAmt = String(amount).replace(/[₹,]/g, '').trim();
+          const msg = new SpeechSynthesisUtterance(`Payment of ${cleanAmt} rupees received on PhonePe!`);
+          msg.rate = 1.0;
+          msg.pitch = 1.0;
+          window.speechSynthesis.speak(msg);
+        }
+      } catch (err) {
+        console.warn('SpeechSynthesis error:', err);
+      }
+    }
+
+    function resetForNextBill() {
+      document.getElementById('successOverlay').classList.remove('active');
+      generateDynamicQr();
+    }
+
+    // Initialize on load
+    window.addEventListener('DOMContentLoaded', () => {
+      generateDynamicQr();
+    });
+  </script>
+</body>
+</html>

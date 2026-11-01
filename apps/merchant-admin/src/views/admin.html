@@ -2121,6 +2121,103 @@
         </div>
       </div>
 
+          <!-- SUB-VIEW 2.4: PAYMENT QR STAND STUDIO -->
+      <div id="subViewStoreStand" hidden>
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-heading">🪧 Customized Payment QR Stand Studio &amp; Soundbox</div>
+              <div class="card-subtext">Generate custom acrylic stands and smart counter displays. <strong>Accepts payments above ₹2,000</strong> without PhonePe gallery restrictions.</div>
+            </div>
+            <div style="display:flex; gap:0.5rem;">
+              <a href="http://localhost:7000/stand" target="_blank" class="btn btn-secondary">⚡ Open Counter Stand</a>
+              <button class="btn btn-primary" onclick="openPrintStandFromAdmin()">🖨️ Print Stand (Ctrl+P)</button>
+            </div>
+          </div>
+
+          <div style="display:grid; grid-template-columns: minmax(0, 1.2fr) minmax(320px, 1fr); gap:2rem; align-items:start;">
+            <!-- Left: Stand Customization Controls -->
+            <div>
+              <!-- Stand Identification -->
+              <div class="settings-group-box">
+                <div class="group-box-title">🏷️ 1. Merchant Identity &amp; PhonePe Integration</div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1rem;">
+                  <div>
+                    <label style="display:block; font-size:0.82rem; font-weight:700; margin-bottom:0.35rem;">Customer UPI ID / VPA</label>
+                    <input id="standInputVpa" type="text" placeholder="e.g. merchant@ybl or 9876543210@ybl" style="width:100%;" oninput="updateLiveStandPreview()" />
+                  </div>
+                  <div>
+                    <label style="display:block; font-size:0.82rem; font-weight:700; margin-bottom:0.35rem;">PhonePe Registered Mobile Number</label>
+                    <input id="standInputMobile" type="tel" placeholder="e.g. 9876543210" style="width:100%;" oninput="updateLiveStandPreview()" />
+                  </div>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1rem;">
+                  <div>
+                    <label style="display:block; font-size:0.82rem; font-weight:700; margin-bottom:0.35rem;">Store / Business Name</label>
+                    <input id="standInputBusinessName" type="text" placeholder="e.g. Sharma Sweets &amp; Bakers" style="width:100%;" oninput="updateLiveStandPreview()" />
+                  </div>
+                  <div>
+                    <label style="display:block; font-size:0.82rem; font-weight:700; margin-bottom:0.35rem;">Payee Display Name</label>
+                    <input id="standInputPayeeName" type="text" placeholder="e.g. Sharma Sweets" style="width:100%;" oninput="updateLiveStandPreview()" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Stand Layout & Appearance -->
+              <div class="settings-group-box">
+                <div class="group-box-title">🎨 2. Stand Layout &amp; Theme</div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1rem;">
+                  <div>
+                    <label style="display:block; font-size:0.82rem; font-weight:700; margin-bottom:0.35rem;">Physical Stand Size</label>
+                    <select id="standSelectFormat" style="width:100%;" onchange="updateLiveStandPreview()">
+                      <option value="table-tent" selected>4" x 6" Acrylic T-Stand (Portrait Table Tent)</option>
+                      <option value="counter-stand">5" x 7" Countertop Stand (Large Display)</option>
+                      <option value="desk-badge">3.5" x 3.5" Desk Sticker / POS Till Badge</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style="display:block; font-size:0.82rem; font-weight:700; margin-bottom:0.35rem;">Primary Accent Color</label>
+                    <div style="display:flex; gap:0.5rem; align-items:center;">
+                      <input id="standInputColor" type="color" value="#5f259f" style="width:45px; height:38px; padding:2px; border-radius:6px; cursor:pointer;" onchange="document.getElementById('standInputColorText').value=this.value; updateLiveStandPreview()" />
+                      <input id="standInputColorText" type="text" value="#5f259f" style="flex:1;" oninput="document.getElementById('standInputColor').value=this.value; updateLiveStandPreview()" />
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <label style="display:block; font-size:0.82rem; font-weight:700; margin-bottom:0.35rem;">Stand Subtitle / Tagline</label>
+                  <input id="standInputTagline" type="text" value="Scan &amp; Pay with Any UPI App" style="width:100%;" oninput="updateLiveStandPreview()" />
+                </div>
+              </div>
+
+              <!-- Educational Solution Notice Box -->
+              <div style="background:rgba(16, 185, 129, 0.08); border:1px solid #10b981; border-radius:8px; padding:1rem; margin-bottom:1.5rem;">
+                <div style="font-weight:700; color:#10b981; margin-bottom:0.3rem;">✨ Solution for PhonePe &gt; ₹2,000 Gallery Rejections</div>
+                <div style="font-size:0.82rem; color:var(--text); line-height:1.5;">
+                  When customers scan this physical stand or the counter screen with their PhonePe camera, NPCI processes it as an in-person present transaction (Camera Scan). This allows the customer to accept payments <strong>above ₹2,000 (up to ₹1,00,000 daily limit)</strong> without any gallery restriction.
+                </div>
+              </div>
+
+              <!-- Action Buttons -->
+              <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+                <button class="btn btn-primary" onclick="openPrintStandFromAdmin()">🖨️ Print Acrylic Stand (Ctrl+P)</button>
+                <button class="btn btn-secondary" onclick="downloadStandSvgFromAdmin()">📥 Download Stand SVG</button>
+                <a id="btnOpenDigitalStand" href="http://localhost:7000/stand" target="_blank" class="btn btn-secondary">⚡ Launch Digital Soundbox Stand</a>
+              </div>
+            </div>
+
+            <!-- Right: Live Stand Mockup Preview -->
+            <div>
+              <div style="font-size:0.88rem; font-weight:700; margin-bottom:0.75rem; color:var(--text-heading);">Live Stand Artwork Preview</div>
+              <div id="standPreviewWrapper" style="background:#ffffff; border-radius:12px; padding:12px; box-shadow:0 10px 25px rgba(0,0,0,0.15); border:1px solid var(--border); max-width:380px; margin:0 auto;">
+                <div id="standSvgPreviewContainer" style="width:100%; height:auto;">
+                  <!-- Live SVG inserted via JS -->
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </div>
 
 
@@ -4018,7 +4115,8 @@
         items = [
           { id: 'subViewStoreBrand', label: '🎨 Brand Identity & Live Mockup', viewId: 'subViewStoreBrand' },
           { id: 'subViewStoreVpa', label: '⚡ Receiving Accounts (VPAs)', viewId: 'subViewStoreVpa' },
-          { id: 'subViewStoreModes', label: '🏬 Selling Modes & Modalities', viewId: 'subViewStoreModes' }
+          { id: 'subViewStoreModes', label: '🏬 Selling Modes & Modalities', viewId: 'subViewStoreModes' },
+          { id: 'subViewStoreStand', label: '🪧 Payment QR Stand Studio', viewId: 'subViewStoreStand' }
         ];
       } else if (sectionId === 'developerHub') {
         items = [
@@ -4902,6 +5000,61 @@
 
     // --- RECEIVING ACCOUNTS (VPAS) ---
     let currentUpiAccounts = [];
+
+    function initStandInputs(accounts, mSettings) {
+      const activeAcc = (accounts || []).find(a => a.isActive || a.is_active);
+      const vpaInput = document.getElementById('standInputVpa');
+      if (vpaInput && !vpaInput.value && activeAcc) {
+        vpaInput.value = activeAcc.upiId || activeAcc.upi_id || '';
+        document.getElementById('standInputPayeeName').value = activeAcc.payeeName || activeAcc.payee_name || '';
+      }
+      if (mSettings && document.getElementById('standInputBusinessName')) {
+        if (!document.getElementById('standInputBusinessName').value) {
+          document.getElementById('standInputBusinessName').value = mSettings.businessName || '';
+        }
+        if (!document.getElementById('standInputMobile').value && mSettings.contactPhone) {
+          document.getElementById('standInputMobile').value = mSettings.contactPhone || '';
+        }
+      }
+      updateLiveStandPreview();
+    }
+
+    function updateLiveStandPreview() {
+      const vpa = document.getElementById('standInputVpa')?.value || 'customer@ybl';
+      const mobile = document.getElementById('standInputMobile')?.value || '';
+      const name = document.getElementById('standInputBusinessName')?.value || 'Merchant Store';
+      const color = document.getElementById('standInputColor')?.value || '#5f259f';
+      const format = document.getElementById('standSelectFormat')?.value || 'table-tent';
+      const tagline = document.getElementById('standInputTagline')?.value || 'Scan & Pay with Any UPI App';
+
+      const params = new URLSearchParams({ name, vpa, mobile, color, format, tagline });
+      const previewUrl = `http://localhost:7000/stand/qr.svg?${params.toString()}`;
+      const container = document.getElementById('standSvgPreviewContainer');
+      if (container) {
+        container.innerHTML = `<img src="${previewUrl}" style="width:100%; height:auto; display:block; border-radius:8px;" alt="Stand Artwork Preview" />`;
+      }
+    }
+
+    function openPrintStandFromAdmin() {
+      const vpa = document.getElementById('standInputVpa')?.value || '';
+      const mobile = document.getElementById('standInputMobile')?.value || '';
+      const name = document.getElementById('standInputBusinessName')?.value || '';
+      const color = document.getElementById('standInputColor')?.value || '#5f259f';
+      const format = document.getElementById('standSelectFormat')?.value || 'table-tent';
+      const params = new URLSearchParams({ name, vpa, mobile, color, format });
+      window.open(`http://localhost:7000/stand/print?${params.toString()}`, '_blank');
+    }
+
+    function downloadStandSvgFromAdmin() {
+      const vpa = document.getElementById('standInputVpa')?.value || '';
+      const mobile = document.getElementById('standInputMobile')?.value || '';
+      const name = document.getElementById('standInputBusinessName')?.value || '';
+      const color = document.getElementById('standInputColor')?.value || '#5f259f';
+      const format = document.getElementById('standSelectFormat')?.value || 'table-tent';
+      const params = new URLSearchParams({ name, vpa, mobile, color, format });
+      window.open(`http://localhost:7000/stand/qr.svg?${params.toString()}`, '_blank');
+    }
+
     async function fetchGatewaySettings() {
       try {
         const upiRes = await fetch(`${API_BASE}/api/v1/admin/upi-settings`);

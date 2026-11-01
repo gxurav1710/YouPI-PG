@@ -205,6 +205,36 @@ describe('Checkout Portal Integration Tests', () => {
       assert.ok(res.text.includes('sanitizeRedirectUrl'));
     });
 
+
+    test('GET /stand renders interactive Smart Payment Stand view', async () => {
+      const res = await get('/stand?name=Acme+Store&vpa=acme@ybl&mobile=9876543210');
+      assert.equal(res.status, 200);
+      assert.ok(res.headers['content-type'].includes('text/html'));
+      assert.ok(res.text.includes('Acme Store'));
+      assert.ok(res.text.includes('acme@ybl'));
+      assert.ok(res.text.includes('+91 98765 43210'));
+      assert.ok(res.text.includes('Smart Payment Stand'));
+      assert.ok(res.text.includes('Point Phone Camera to Pay'));
+    });
+
+    test('GET /stand/print renders printable physical stand studio', async () => {
+      const res = await get('/stand/print?name=Sharma+Sweets&vpa=sharma@ybl&mobile=9812345678');
+      assert.equal(res.status, 200);
+      assert.ok(res.headers['content-type'].includes('text/html'));
+      assert.ok(res.text.includes('Sharma Sweets'));
+      assert.ok(res.text.includes('sharma@ybl'));
+      assert.ok(res.text.includes('window.print()'));
+      assert.ok(res.text.includes('@media print'));
+    });
+
+    test('GET /stand/qr.svg returns dynamic stand QR SVG image', async () => {
+      const res = await get('/stand/qr.svg?amount=3500.00&vpa=test@upi');
+      assert.equal(res.status, 200);
+      assert.equal(res.headers['content-type'], 'image/svg+xml');
+      assert.ok(res.text.startsWith('<svg'));
+      assert.ok(res.text.endsWith('</svg>'));
+    });
+
     test('renders dynamic branding when DEFAULT_APP_NAME or merchant branding is configured', async () => {
       const origEnv = { ...process.env };
       process.env.DEFAULT_APP_NAME = 'CustomPay Gateway';

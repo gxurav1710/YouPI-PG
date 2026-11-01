@@ -10,6 +10,7 @@ const testFiles = [
   'packages/db/src/__tests__/db.test.js',
   'packages/db/src/__tests__/schema-parity.test.js',
   'packages/core/src/__tests__/core.test.js',
+  'packages/core/src/__tests__/stand-generator.test.js',
   'packages/core/src/__tests__/fail-closed-attribution.test.js',
   'packages/core/src/__tests__/observer-isolation-concurrency.test.js',
   'packages/core/src/__tests__/release-candidate-verification.test.js',

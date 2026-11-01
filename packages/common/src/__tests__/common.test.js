@@ -15,6 +15,7 @@ import {
   isValidVpa,
   buildUpiUri,
   buildUpiIntentUri,
+  buildStandUpiUri,
   UPI_PROVIDERS,
   getUpiProviders,
   findUpiProviderByPackage,
@@ -166,6 +167,38 @@ describe('@youpi/common Unit Tests', () => {
       assert.deepEqual([...queryParams.keys()], ['pa', 'pn', 'am', 'tn']);
     });
 
+
+    test('builds authentic NPCI-compliant stand UPI URI with mode and currency', () => {
+      // 1. Static physical QR stand (camera scan, open amount)
+      const staticUri = buildStandUpiUri({
+        payeeVpa: 'customer@ybl',
+        payeeName: 'Sharma Sweets',
+        merchantCategoryCode: '5411',
+        mode: '02'
+      });
+      assert.ok(staticUri.startsWith('upi://pay?'));
+      const parsedStatic = new URL(staticUri);
+      assert.equal(parsedStatic.searchParams.get('pa'), 'customer@ybl');
+      assert.equal(parsedStatic.searchParams.get('pn'), 'Sharma Sweets');
+      assert.equal(parsedStatic.searchParams.get('mc'), '5411');
+      assert.equal(parsedStatic.searchParams.get('mode'), '02');
+      assert.equal(parsedStatic.searchParams.get('cu'), 'INR');
+      assert.equal(parsedStatic.searchParams.get('am'), null);
+
+      // 2. Dynamic counter stand (with amount > ₹2000)
+      const dynamicUri = buildStandUpiUri({
+        payeeVpa: 'customer@ybl',
+        payeeName: 'Sharma Sweets',
+        amountPaise: 350000n,
+        merchantCategoryCode: '5411',
+        mode: '04',
+        transactionNote: 'BILL-445'
+      });
+      const parsedDyn = new URL(dynamicUri);
+      assert.equal(parsedDyn.searchParams.get('am'), '3500.00');
+      assert.equal(parsedDyn.searchParams.get('mode'), '04');
+      assert.equal(parsedDyn.searchParams.get('tn'), 'BILL-445');
+    });
     test('validates 30 official UPI application provider registry', () => {
       const providers = getUpiProviders();
       assert.equal(providers.length, 30, 'Must have exactly 30 registered UPI providers');
