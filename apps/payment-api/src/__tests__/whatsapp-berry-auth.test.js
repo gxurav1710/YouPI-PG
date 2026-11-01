@@ -125,6 +125,10 @@ test('WhatsApp Berry Protocol OTP Customer Auth & Merchant Configuration Suite',
 
   let loginOtp = null;
 
+  // The signup OTP was requested moments earlier.
+  // Wait until the 30-second resend cooldown expires.
+  await new Promise(resolve => setTimeout(resolve, 31_000));
+
   await t.test('7. POST /api/v1/customer/send-otp dispatches WhatsApp OTP for existing user', async () => {
     const res = await authFetch(`${apiBase}/api/v1/customer/send-otp`, {
       method: 'POST',
