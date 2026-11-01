@@ -63,6 +63,11 @@ export function runMigrations(targetDb) {
   try { db.exec("ALTER TABLE payment_sessions ADD COLUMN verification_level INTEGER DEFAULT 0;"); } catch {}
   try { db.exec("ALTER TABLE payment_sessions ADD COLUMN verification_sources TEXT DEFAULT '[]';"); } catch {}
   try { db.exec("ALTER TABLE payment_sessions ADD COLUMN verification_tag TEXT DEFAULT 'UNVERIFIED';"); } catch {}
+  try { db.exec('ALTER TABLE payment_sessions ADD COLUMN customer_utr TEXT;'); } catch {}
+  try { db.exec('ALTER TABLE payment_sessions ADD COLUMN utr_submitted_at TEXT;'); } catch {}
+  try { db.exec('ALTER TABLE payment_sessions ADD COLUMN manual_reviewed_by TEXT;'); } catch {}
+  try { db.exec('ALTER TABLE payment_sessions ADD COLUMN manual_reviewed_at TEXT;'); } catch {}
+  try { db.exec('ALTER TABLE payment_sessions ADD COLUMN manual_review_reason TEXT;'); } catch {}
 
   // Phase 9C/9D: Preflight conflict check for existing databases prior to applying DDL / indexes
   try {
@@ -111,6 +116,9 @@ export function runMigrations(targetDb) {
 
   // Execute schema DDL
   db.exec(schemaSql);
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_manual_upi_utr_per_receiving_account
+    ON payment_sessions (receiving_account_id, upper(customer_utr))
+    WHERE method = 'MANUAL_UPI' AND customer_utr IS NOT NULL;`);
 
   // Alter table columns if migrating existing databases
   try { db.exec("ALTER TABLE payment_sessions ADD COLUMN verification_level INTEGER DEFAULT 0;"); } catch {}

@@ -306,6 +306,42 @@ export class PaymentSessionRepository {
     });
   }
 
+  /** Record a customer supplied UTR without treating it as payment evidence. */
+  submitManualUtr(sessionId, rawUtr) {
+    const utr = String(rawUtr || '').trim().toUpperCase();
+    if (!/^[A-Z0-9-]{6,35}$/.test(utr)) {
+      throw new Error('Enter a valid UPI reference (6–35 letters or digits).');
+    }
+    return this.db.transaction(() => {
+      const session = this.findById(sessionId);
+      if (!session) throw new Error('Session not found');
+      if (session.method !== PaymentMethod.MANUAL_UPI) throw new Error('Manual UTR submission is not enabled for this payment.');
+      if (session.status === PaymentStatus.MANUAL_REVIEW && session.customerUtr === utr) return session;
+      if (session.status !== PaymentStatus.ACTIVE) throw new Error('This payment is no longer accepting a UTR.');
+      if (!isValidTransition(session.status, PaymentStatus.MANUAL_REVIEW)) {
+        throw new Error(`Illegal payment state transition: cannot move from '${session.status}' to '${PaymentStatus.MANUAL_REVIEW}'.`);
+      }
+      const now = new Date().toISOString();
+      this.db.execute(`
+        UPDATE payment_sessions
+        SET customer_utr = ?, utr_submitted_at = ?, status = ?, completed_at = ?, updated_at = ?
+        WHERE id = ? AND status = ?
+      `, [utr, now, PaymentStatus.MANUAL_REVIEW, now, now, sessionId, PaymentStatus.ACTIVE]);
+      const updated = this.findById(sessionId);
+      if (updated.status !== PaymentStatus.MANUAL_REVIEW || updated.customerUtr !== utr) {
+        throw new Error('Payment state changed; refresh and try again.');
+      }
+      if (session.receivingAccountId) {
+        this.db.execute(`
+          UPDATE payment_receiving_accounts
+          SET is_slot_busy = 0, current_active_session_id = NULL, updated_at = ?
+          WHERE id = ? AND current_active_session_id = ?
+        `, [now, session.receivingAccountId, sessionId]);
+      }
+      return updated;
+    });
+  }
+
   findCurrentActiveOrProcessing(receivingAccountId) {
     const row = this.db.queryOne(`
       SELECT * FROM payment_sessions
@@ -637,6 +673,11 @@ export class PaymentSessionRepository {
       verificationLevel: row.verification_level !== undefined && row.verification_level !== null ? Number(row.verification_level) : 0,
       verificationSources: JSON.parse(row.verification_sources || '[]'),
       verificationTag: row.verification_tag || 'UNVERIFIED',
+      customerUtr: row.customer_utr || null,
+      utrSubmittedAt: row.utr_submitted_at ? new Date(row.utr_submitted_at) : null,
+      manualReviewedBy: row.manual_reviewed_by || null,
+      manualReviewedAt: row.manual_reviewed_at ? new Date(row.manual_reviewed_at) : null,
+      manualReviewReason: row.manual_review_reason || null,
       metadata: JSON.parse(row.metadata || '{}'),
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at)

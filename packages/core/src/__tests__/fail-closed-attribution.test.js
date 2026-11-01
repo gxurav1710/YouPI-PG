@@ -213,6 +213,17 @@ describe('Phase 9A Fail-Closed Payment Attribution Hardening Suite', () => {
     assert.equal(sessionRepo.findById(sessionA.id).status, PaymentStatus.OBSERVED_SUCCESS);
   });
 
+  test('3b. Manual UPI sessions are never verified from SMS or Gmail attribution', () => {
+    const manual = sessionRepo.create({ merchantId: merchantA.id, receivingAccountId: accountA.id,
+      orderId: 'ORD-MANUAL-UPI', amountPaise: 25000n, method: 'MANUAL_UPI' });
+    sessionRepo.acquireSlotAtomic(manual.id, accountA.id, 300000);
+    const result = pipeline.process({ source: 'GMAIL', rawText: 'Received Rs 250.00 via UPI. UTR 250000011224',
+      sender: 'alerts@retail.bank.in', receivingAccountId: accountA.id, rawPayload: { targetSessionId: manual.id } });
+    assert.notEqual(result.status, 'VERIFIED');
+    assert.equal(sessionRepo.findById(manual.id).status, PaymentStatus.ACTIVE);
+    assert.equal(emittedEvents.some(event => event.payload?.paymentId === manual.id), false);
+  });
+
   test('4. Missing or invalid observer registration: rejected or quarantined without guessing', () => {
     const sessionA = sessionRepo.create({
       merchantId: merchantA.id,

@@ -299,13 +299,37 @@ export class AttributionEngine {
     if (normalizedObs.rawPayload?.targetSessionId) {
       currentSession = this.sessionRepo.findById(normalizedObs.rawPayload.targetSessionId);
     }
+    if (currentSession?.method === 'MANUAL_UPI') {
+      if (this.auditRepo) this.auditRepo.log({
+        merchantId: currentSession.merchantId,
+        entityType: 'PAYMENT_SESSION',
+        entityId: currentSession.id,
+        action: 'AUTOMATIC_OBSERVATION_IGNORED_FOR_MANUAL_UPI',
+        actorType: 'OBSERVER',
+        details: { observationId: savedObs.id, source: normalizedObs.source }
+      });
+      return {
+        attributed: false,
+        duplicate: false,
+        lateMatch: false,
+        observationId: savedObs.id,
+        outcomeStatus: ObservationAttributionStatus.UNATTRIBUTED,
+        reason: 'MANUAL_UPI_REQUIRES_ADMIN_BANK_VERIFICATION'
+      };
+    }
     if (!currentSession || (currentSession.amountPaise !== normalizedObs.amountPaise)) {
       currentSession = this.sessionRepo.findCurrentActiveOrProcessing(normalizedObs.receivingAccountId);
+    }
+    if (currentSession?.method === 'MANUAL_UPI') {
+      if (this.auditRepo) this.auditRepo.log({ merchantId: currentSession.merchantId, entityType: 'PAYMENT_SESSION', entityId: currentSession.id,
+        action: 'AUTOMATIC_OBSERVATION_IGNORED_FOR_MANUAL_UPI', actorType: 'OBSERVER', details: { observationId: savedObs.id, source: normalizedObs.source } });
+      return { attributed: false, duplicate: false, lateMatch: false, observationId: savedObs.id,
+        outcomeStatus: ObservationAttributionStatus.UNATTRIBUTED, reason: 'MANUAL_UPI_REQUIRES_ADMIN_BANK_VERIFICATION' };
     }
     if (currentSession && currentSession.amountPaise !== normalizedObs.amountPaise) {
       const matchRows = this.sessionRepo.db.query(`
         SELECT * FROM payment_sessions
-        WHERE receiving_account_id = ? AND status IN ('ACTIVE', 'PROCESSING') AND amount_paise = ?
+        WHERE receiving_account_id = ? AND status IN ('ACTIVE', 'PROCESSING') AND method <> 'MANUAL_UPI' AND amount_paise = ?
       `, [normalizedObs.receivingAccountId, Number(normalizedObs.amountPaise)]);
       if (matchRows.length > 1) {
         return this.holdAmbiguous(
@@ -326,6 +350,7 @@ export class AttributionEngine {
         SELECT * FROM payment_sessions
         WHERE receiving_account_id = ?
           AND status IN ('ACTIVE', 'PROCESSING')
+          AND method <> 'MANUAL_UPI'
           AND amount_paise = ?
       `, [normalizedObs.receivingAccountId, Number(normalizedObs.amountPaise)]);
       if (candidates.length > 1) {

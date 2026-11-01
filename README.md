@@ -653,6 +653,9 @@ Deep-dive engineering manuals and operational runbooks are available in the [`/d
 | [`docs/MERCHANT_INTEGRATION.md`](docs/MERCHANT_INTEGRATION.md)             | Full developer integration guide, SDK methods & webhooks   |
 | [`docs/WHITE_LABEL.md`](docs/WHITE_LABEL.md)                               | White-label branding customizer, domains & Cloudflare      |
 | [`docs/OPERATIONS_TROUBLESHOOTING.md`](docs/OPERATIONS_TROUBLESHOOTING.md) | Production operations, logs, diagnostics & troubleshooting |
+| [`PAYMENT_INTEGRATION_GUIDE.md`](PAYMENT_INTEGRATION_GUIDE.md)             | Fins & Wings manual UPI checkout, webhook, and admin verification flow |
+| [`SECURITY_REMEDIATION_REPORT.md`](SECURITY_REMEDIATION_REPORT.md)         | Manual UPI security posture, findings, and remaining blockers |
+| [`DEPLOYMENT_CHECKLIST.md`](DEPLOYMENT_CHECKLIST.md)                       | Production readiness checks; deployment is not included in this work |
 | [`openapi.yaml`](openapi.yaml)                                             | Official OpenAPI 3.0 REST API specification                |
 
 <br/>

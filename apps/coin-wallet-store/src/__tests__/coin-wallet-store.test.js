@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import { Database } from '@youpi/db';
+import { hashApiKey } from '../../../../packages/db/src/repositories/merchant.repository.js';
 import { startServer as startPaymentApi } from '../../../payment-api/src/index.js';
 import { startCoinWalletStore } from '../index.js';
 import { generateHmac } from '@youpi/common';
@@ -15,20 +16,24 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
   const storeSecret = 'wallet_store_secret_9988';
 
   before(async () => {
+    process.env.NODE_ENV = 'test';
+    process.env.YOUPI_ALLOWED_RETURN_ORIGINS = 'http://localhost:5099';
     testDb = new Database({ inMemory: true });
     apiInstance = await startPaymentApi(6193, testDb);
 
     // Update demo merchant with our store webhook secret
-    testDb.execute('UPDATE merchants SET webhook_secret = ?, webhook_url = ? WHERE id = ?', [
+    testDb.execute('UPDATE merchants SET webhook_secret = ?, webhook_url = ?, api_key_hash = ? WHERE id = ?', [
       storeSecret,
       'http://localhost:5099/api/webhook',
+      hashApiKey(storeSecret),
       '00000000-0000-0000-0000-000000000001'
     ]);
 
     storeInstance = await startCoinWalletStore(5099, {
       gatewayApiUrl: `http://localhost:${apiInstance.port}`,
       merchantId: '00000000-0000-0000-0000-000000000001',
-      webhookSecret: storeSecret
+      webhookSecret: storeSecret,
+      publicBaseUrl: 'http://localhost:5099'
     });
 
     storeBaseUrl = `http://localhost:${storeInstance.port}`;

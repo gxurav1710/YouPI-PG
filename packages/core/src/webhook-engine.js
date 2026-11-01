@@ -30,7 +30,7 @@ export class WebhookEngine {
     // The bank reference (UTR/RRN) lives on the attributed observation, not on the
     // session row. Merchants need it to reconcile a webhook against their bank
     // statement, and it is part of the documented webhook contract.
-    let utr = session.utr || session.bankReferenceNumber || session.bank_reference_number || '';
+    let utr = session.customerUtr || session.customer_utr || session.utr || session.bankReferenceNumber || session.bank_reference_number || '';
     const attributedObsId = session.attributedObservationId || session.attributed_observation_id;
     if (!utr && attributedObsId) {
       try {

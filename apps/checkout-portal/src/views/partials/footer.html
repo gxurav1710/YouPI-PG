@@ -23,6 +23,15 @@
             Payment Done — Check My Payment
           </button>
         </div>
+        <div id="manualUtrPanel" style="display:none; width:100%; padding:12px 4px 4px;">
+          <label for="manualUtrInput" style="display:block; font-weight:600; margin-bottom:6px;">UPI transaction reference (UTR)</label>
+          <div style="display:flex; gap:8px;">
+            <input id="manualUtrInput" inputmode="text" autocomplete="off" maxlength="35" aria-describedby="manualUtrMessage" placeholder="Enter 6–35 letters or digits" style="flex:1; min-width:0; padding:10px; border:1px solid #cbd5e1; border-radius:8px;">
+            <button id="manualUtrSubmit" type="button" onclick="submitManualUtr()" style="padding:10px 14px; border:0; border-radius:8px; background:#0957cb; color:white; font-weight:600;">Submit</button>
+          </div>
+          <div id="manualUtrMessage" role="status" aria-live="polite" style="margin-top:8px; font-size:13px;"></div>
+        </div>
+        <div id="manualUtrPending" role="status" style="display:none; width:100%; padding:10px 4px; font-weight:600;">Reference submitted. Waiting for the merchant to verify the payment in their bank account.</div>
 
         <!-- ORDER BREAKDOWN POPUP DRAWER -->
         <div class="ypg-details-drawer" id="orderDetailsDrawer">

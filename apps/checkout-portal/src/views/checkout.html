@@ -1650,6 +1650,14 @@
 
     function renderState(data) {
       state = data;
+      const manualUtrPanel = document.getElementById('manualUtrPanel');
+      const manualUtrPending = document.getElementById('manualUtrPending');
+      const manualUtrButton = document.getElementById('btnContinuePayment');
+      const methodSelector = document.getElementById('paymentMethodSelectorBar');
+      if (manualUtrPanel) manualUtrPanel.style.display = data.method === 'MANUAL_UPI' && data.status === 'ACTIVE' ? 'block' : 'none';
+      if (manualUtrPending) manualUtrPending.style.display = data.method === 'MANUAL_UPI' && data.status === 'MANUAL_REVIEW' ? 'block' : 'none';
+      if (manualUtrButton && data.method === 'MANUAL_UPI') manualUtrButton.style.display = 'none';
+      if (methodSelector && data.method === 'MANUAL_UPI') methodSelector.style.display = 'none';
       const b = data.branding || {};
       const appName = b.appName || 'YouPI PG';
       const merchantName = data.merchantName || 'Merchant Checkout';
@@ -2016,6 +2024,22 @@
           return;
         }
 
+        if (data.status === 'MANUAL_REVIEW' && data.method === 'MANUAL_UPI') {
+          closeProcessingModal();
+          const bar = document.getElementById('paymentMethodSelectorBar');
+          if (bar) bar.style.display = 'none';
+          hideAllContent();
+          const upiView = document.getElementById('viewUpiContent');
+          if (upiView) upiView.hidden = false;
+          const footer = document.getElementById('ypgStickyFooter');
+          if (footer) footer.style.display = 'flex';
+          if (manualUtrPanel) manualUtrPanel.style.display = 'none';
+          if (manualUtrPending) manualUtrPending.style.display = 'block';
+          if (manualUtrButton) manualUtrButton.style.display = 'none';
+          const msg = document.getElementById('manualUtrMessage');
+          if (msg) msg.textContent = '';
+          return;
+        }
         if (data.status === 'MANUAL_REVIEW') {
           closeProcessingModal();
           closeCancelPaymentModal();
@@ -2257,7 +2281,7 @@
           if (vCard) vCard.hidden = false;
           document.getElementById('ypgStickyFooter').style.display = 'none';
         } else {
-          // Default: UPI QR (CRITICAL INVARIANT: ALWAYS SHOWS QR AND RUNS 5:00 TIMER REGARDLESS OF GREEN/YELLOW/RED)
+          // Default: UPI QR. Manual mode adds a customer UTR claim and never auto-confirms.
           document.getElementById('viewUpiContent').hidden = false;
           document.getElementById('ypgStickyFooter').style.display = 'flex';
           loadQrSvg();
@@ -2275,7 +2299,9 @@
           }
 
           // Initialize button hidden until 4:00 has elapsed
-          if (btnContinue && remainingSec > 240) {
+          if (data.method === 'MANUAL_UPI' && btnContinue) {
+            btnContinue.style.display = 'none';
+          } else if (btnContinue && remainingSec > 240) {
             btnContinue.style.display = 'none';
           } else if (btnContinue) {
             btnContinue.style.display = 'block';
@@ -2626,6 +2652,31 @@
           loadState();
         }
       } catch (e) { }
+    }
+
+    async function submitManualUtr() {
+      const input = document.getElementById('manualUtrInput');
+      const button = document.getElementById('manualUtrSubmit');
+      const message = document.getElementById('manualUtrMessage');
+      const utr = String(input?.value || '').trim();
+      if (!/^[A-Za-z0-9-]{6,35}$/.test(utr)) {
+        if (message) message.textContent = 'Enter a valid UTR/reference (6–35 letters, digits or hyphens).';
+        return;
+      }
+      if (button) { button.disabled = true; button.textContent = 'Submitting…'; }
+      if (message) message.textContent = '';
+      try {
+        const response = await fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/manual-utr`, {
+          method: 'POST', headers: { ...getApiHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ utr })
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || 'Could not submit reference.');
+        if (message) message.textContent = 'Submitted. Your order remains unpaid until the merchant verifies the bank transaction.';
+        await loadState();
+      } catch (error) {
+        if (message) message.textContent = error?.message || 'Could not submit reference. Try again.';
+        if (button) { button.disabled = false; button.textContent = 'Submit'; }
+      }
     }
 
     // --- SINGLE ACTIVE PAYMENT SESSION CONFLICT RESOLUTION ---

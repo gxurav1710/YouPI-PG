@@ -12,6 +12,7 @@ describe('Phase 15: Counter Payments (Cash & Card at Counter)', () => {
   let testDb;
 
   before(async () => {
+    process.env.NODE_ENV = 'test';
     testDb = new Database({ inMemory: true });
     apiInstance = await startPaymentApi(6194, testDb);
     baseUrl = `http://localhost:${apiInstance.port}`;
@@ -27,7 +28,9 @@ describe('Phase 15: Counter Payments (Cash & Card at Counter)', () => {
       const url = new URL(path, baseUrl);
       const req = http.request(url, {
         method: options.method || 'GET',
-        headers: { 'Content-Type': 'application/json', ...authHeadersFor(path), ...(options.headers || {}) }
+        headers: { 'Content-Type': 'application/json', ...authHeadersFor(path),
+          ...(path.startsWith('/api/v1/payments') ? { 'X-Merchant-Id': '00000000-0000-0000-0000-000000000001' } : {}),
+          ...(options.headers || {}) }
       }, res => {
         let data = '';
         res.on('data', chunk => { data += chunk; });

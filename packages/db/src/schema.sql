@@ -121,6 +121,11 @@ CREATE TABLE IF NOT EXISTS payment_sessions (
     verification_level INT DEFAULT 0,
     verification_sources TEXT DEFAULT '[]',
     verification_tag VARCHAR(100) DEFAULT 'UNVERIFIED',
+    customer_utr TEXT,
+    utr_submitted_at TIMESTAMPTZ,
+    manual_reviewed_by TEXT,
+    manual_reviewed_at TIMESTAMPTZ,
+    manual_review_reason TEXT,
     metadata TEXT NOT NULL DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -138,6 +143,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_one_slot_per_receiving_account
 CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_sessions_attributed_obs
   ON payment_sessions (attributed_observation_id)
   WHERE attributed_observation_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_manual_upi_utr_per_receiving_account
+  ON payment_sessions (receiving_account_id, upper(customer_utr))
+  WHERE method = 'MANUAL_UPI' AND customer_utr IS NOT NULL;
 
 -- 5. Payment Observations Table
 CREATE TABLE IF NOT EXISTS payment_observations (

@@ -33,6 +33,8 @@ import { YoupiPaymentClient } from '@youpi/merchant-sdk';
 import { authHeadersFor } from '../../../../scripts/test-support.js';
 
 test('Full 53-Point Customer Identity, Authentication & Payment Invariant Matrix', async () => {
+  process.env.NODE_ENV = 'test';
+  process.env.YOUPI_ALLOWED_RETURN_ORIGINS = 'https://novacommerce.com http://localhost:5984';
   const testDb = new Database({ inMemory: true });
   runMigrations(testDb);
 
@@ -77,7 +79,8 @@ test('Full 53-Point Customer Identity, Authentication & Payment Invariant Matrix
   const demoStore = new CoinWalletStoreServer({
     gatewayApiUrl: apiBase,
     merchantId: merchant.id,
-    webhookSecret: merchant.webhookSecret
+    webhookSecret: merchant.webhookSecret,
+    publicBaseUrl: 'http://localhost:5984'
   });
   const demoServer = demoStore.createServer();
   await new Promise(resolve => demoServer.listen(5984, resolve));
@@ -439,10 +442,13 @@ test('Full 53-Point Customer Identity, Authentication & Payment Invariant Matrix
 
     // --- MERCHANT INTEGRATION (41 - 43) ---
     // 41, 42, 43. Generic merchant integration creates payment without customer auth
-    const genericPay = await paymentClient.createPayment({
+    await assert.rejects(paymentClient.createPayment({
       orderId: 'EXT-MERCHANT-ORD-101',
       amount: '50.00',
       returnUrl: 'https://thirdparty.com/return'
+    }), /returnUrl origin is not allowlisted/);
+    const genericPay = await paymentClient.createPayment({
+      orderId: 'EXT-MERCHANT-ORD-101', amount: '50.00'
     });
     assert.ok(genericPay.paymentId);
     assert.ok(genericPay.checkoutUrl);

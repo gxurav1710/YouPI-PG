@@ -4930,7 +4930,7 @@
           };
 
           setVal('settingMerchantId', mData.publishableKey || mData.merchantId || currentMerchantId);
-          setVal('settingMerchantApiKey', mData.merchantKey || branding.merchantApiKey || mData.webhookSecret || '');
+          setVal('settingMerchantApiKey', mData.merchantKey || branding.merchantApiKey || '');
           setVal('settingBusinessName', mData.businessName);
           setVal('settingWebhookUrl', mData.webhookUrl);
           setVal('settingWebhookSecret', mData.webhookSecret);
@@ -7787,7 +7787,7 @@
 
       const currentM = merchantsList.find(m => m.id === currentMerchantId);
       const host = window.location.origin;
-      const snippet = `<script src="${host}/youpi.js" data-youpi-key="${currentMerchantId}"></script>`;
+      const snippet = `<script src="${host}/youpi.js" data-youpi-key="${currentMerchantId}"><\/script>`;
       if (snippetEl) snippetEl.value = snippet;
 
       if (keyEl) {

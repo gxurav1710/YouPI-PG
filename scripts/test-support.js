@@ -26,7 +26,11 @@ const GUARDED = /\/api\/v1\/admin\/|\/api\/v1\/pollers\/events|\/api\/v1\/poller
 
 /** Admin bearer header only for routes the gateway guards; other routes (customer auth etc.) get none. */
 export function authHeadersFor(path, extra = {}) {
-  return GUARDED.test(String(path)) ? authHeaders(extra) : { ...extra };
+  if (!GUARDED.test(String(path))) return { ...extra };
+  const merchantForPaymentCreation = /\/api\/v1\/payments(?:\?|$)/.test(String(path))
+    ? { 'X-Merchant-Id': '00000000-0000-0000-0000-000000000001' }
+    : {};
+  return authHeaders({ ...merchantForPaymentCreation, ...extra });
 }
 
 /**

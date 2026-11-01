@@ -119,6 +119,11 @@ CREATE TABLE IF NOT EXISTS payment_sessions (
     verification_level INTEGER DEFAULT 0,
     verification_sources TEXT DEFAULT '[]',
     verification_tag TEXT DEFAULT 'UNVERIFIED',
+    customer_utr TEXT,
+    utr_submitted_at TEXT,
+    manual_reviewed_by TEXT,
+    manual_reviewed_at TEXT,
+    manual_review_reason TEXT,
     metadata TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))

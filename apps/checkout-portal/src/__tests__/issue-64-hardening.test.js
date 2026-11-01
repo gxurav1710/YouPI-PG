@@ -98,9 +98,9 @@ describe('Issue #64 hardening: returnUrl, branding sinks, postMessage, framing',
 
   describe('checkout.html returnUrl success path', () => {
     test('href and navigation use the sanitized url, never the raw one', () => {
-      assert.ok(checkoutView.includes('const safeReturnUrl = sanitizeRedirectUrl(data.returnUrl);'));
-      assert.ok(checkoutView.includes('btnReturn.href = safeReturnUrl;'));
-      assert.ok(checkoutView.includes('window.location.href = safeReturnUrl;'));
+      assert.ok(checkoutView.includes('const safeReturn = sanitizeRedirectUrl(effectiveReturnUrl);'));
+      assert.ok(checkoutView.includes('btnReturn.href = safeReturn;'));
+      assert.ok(checkoutView.includes('window.location.href = safeReturn;'));
       assert.equal(checkoutView.includes('btnReturn.href = data.returnUrl;'), false);
       assert.equal(checkoutView.includes('window.location.href = data.returnUrl;'), false);
     });
@@ -209,6 +209,8 @@ describe('Issue #64 hardening: returnUrl, branding sinks, postMessage, framing',
     let merchantId;
 
     before(async () => {
+      process.env.NODE_ENV = 'test';
+      process.env.YOUPI_ALLOWED_RETURN_ORIGINS = 'https://store.test';
       testDb = new Database({ inMemory: true });
       apiInstance = await startPaymentApi(6194, testDb);
       apiBaseUrl = `http://localhost:${apiInstance.port}`;
@@ -225,7 +227,7 @@ describe('Issue #64 hardening: returnUrl, branding sinks, postMessage, framing',
         const url = new URL('/api/v1/payments', apiBaseUrl);
         const req = http.request(url, {
           method: 'POST',
-          headers: authHeadersFor('/api/v1/payments', { 'Content-Type': 'application/json' })
+          headers: authHeadersFor('/api/v1/payments', { 'Content-Type': 'application/json', 'X-Merchant-Id': merchantId })
         }, res => {
           let data = '';
           res.on('data', chunk => { data += chunk; });
@@ -273,6 +275,13 @@ describe('Issue #64 hardening: returnUrl, branding sinks, postMessage, framing',
       const stored = new PaymentSessionRepository(testDb).findByOrderId(merchantId, orderId);
       assert.ok(stored, 'session should exist');
       assert.equal(stored.returnUrl, 'https://store.test/success');
+    });
+
+    test('rejects unallowlisted and userinfo-bearing return URLs', async () => {
+      for (const returnUrl of ['https://elsewhere.test/return', 'https://user@store.test/return']) {
+        const res = await post({ orderId: `ISSUE64-BLOCK-${Date.now()}-${Math.random()}`, amount: '100.00', returnUrl });
+        assert.equal(res.status, 400);
+      }
     });
 
     test('a missing returnUrl is still allowed', async () => {

@@ -16,12 +16,14 @@ describe('Auth guard: admin, observer and force-success endpoints', () => {
       method,
       headers: {
         'Content-Type': 'application/json',
+        ...(path.startsWith('/api/v1/payments') ? { 'X-Merchant-Id': '00000000-0000-0000-0000-000000000001' } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {})
       },
       body: body ? JSON.stringify(body) : undefined
     });
 
   before(async () => {
+    process.env.NODE_ENV = 'test';
     db = new Database({ inMemory: true });
     api = await startPaymentApi(6197, db);
     baseUrl = `http://localhost:${api.port}`;

@@ -8,7 +8,8 @@
  *
  * IMPORTANT SECURITY NOTE:
  * Browser events and client-side callbacks are strictly for UI and user experience.
- * Authoritative proof of payment MUST ALWAYS come from server-to-server HMAC-SHA256 signed webhooks.
+ * Browser callbacks are not proof of settlement. For manual UPI, only the merchant's
+ * independent bank-account review may approve payment.
  */
 
 (function (globalScope) {
@@ -51,7 +52,8 @@
     const origin = scriptUrl ? scriptUrl.origin : (window.location.protocol + '//' + window.location.hostname + ':7000');
 
     return {
-      key: script.getAttribute('data-youpi-key') || script.getAttribute('data-key') || script.getAttribute('data-merchant-id') || '',
+      // Merchant identifiers are public. Secret API credentials belong only on merchant servers.
+      merchantId: script.getAttribute('data-merchant-id') || '',
       apiUrl: script.getAttribute('data-api-url') || origin,
       portalUrl: script.getAttribute('data-portal-url') || script.getAttribute('data-checkout-url') || origin,
       currency: script.getAttribute('data-currency') || 'INR',
@@ -68,31 +70,11 @@
   const scriptConfig = getScriptConfig();
 
   /**
-   * The gateway stores only an absolute http(s) returnUrl, so a relative successUrl is
-   * resolved against this storefront's own origin before it is sent. Without this a
-   * merchant using `data-success-url="/success"` would get a 400 from the API.
-   * @param {string} [raw]
-   * @returns {string|undefined} absolute http(s) URL, or undefined when unusable
-   */
-  function resolveReturnUrl(raw) {
-    if (!raw) return undefined;
-    try {
-      const base = (typeof window !== 'undefined' && window.location) ? window.location.href : undefined;
-      const parsed = new URL(raw, base);
-      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return undefined;
-      return parsed.href;
-    } catch (e) {
-      return undefined;
-    }
-  }
-
-  /**
    * YoupiCheckout class
    */
   class YoupiCheckout {
     /**
      * @param {{
-     *   key?: string,
      *   order_id?: string,
      *   orderId?: string,
      *   amount?: number | string,
@@ -131,7 +113,6 @@
         : 'http://localhost:6100';
 
       this.options = Object.assign({
-        key: scriptConfig.key || '',
         order_id: '',
         orderId: '',
         amount: 0,
@@ -195,60 +176,7 @@
         return instance;
       }
 
-      // Otherwise, call YOUPI PG to create the payment session
-      try {
-        const orderId = instance.options.orderId || `ORDER-${Date.now()}`;
-        instance.options.orderId = orderId;
-        instance.options.order_id = orderId;
-
-        const customer = instance.options.customer || {};
-        const custPayload = {
-          fullName: customer.name || customer.fullName || '',
-          email: customer.email || '',
-          phoneNumber: customer.phone || customer.phoneNumber || customer.mobileNumber || ''
-        };
-
-        const createRes = await fetch(`${instance.options.apiUrl}/api/v1/payments`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(instance.options.key ? { 'X-Merchant-Id': instance.options.key } : {})
-          },
-          body: JSON.stringify({
-            orderId: orderId,
-            amount: instance.options.amount,
-            currency: instance.options.currency || 'INR',
-            customer: (custPayload.email || custPayload.phoneNumber || custPayload.fullName) ? custPayload : undefined,
-            description: instance.options.description,
-            metadata: instance.options.metadata,
-            returnUrl: resolveReturnUrl(instance.options.successUrl)
-          })
-        });
-
-        const data = await createRes.json();
-        if (!createRes.ok || !data.checkoutUrl) {
-          const errMsg = data.error || data.message || `Failed to create payment session (HTTP ${createRes.status})`;
-          const failResult = {
-            status: 'FAILED',
-            order_id: orderId,
-            reason: errMsg,
-            error: errMsg
-          };
-          YoupiCheckout._emitEvent('youpi:payment:failed', failResult);
-          YoupiCheckout._emitEvent('youpi:payment:result', failResult);
-          if (typeof instance.options.onFailed === 'function') instance.options.onFailed(failResult);
-          if (typeof instance.options.onPaymentFailed === 'function') instance.options.onPaymentFailed(failResult);
-          throw new Error(errMsg);
-        }
-
-        instance.options.paymentId = data.paymentId;
-        instance.options.checkoutUrl = data.checkoutUrl;
-        instance.open();
-        return instance;
-      } catch (err) {
-        console.error('[YouPI JS] Payment initialization error:', err.message);
-        throw err;
-      }
+      throw new Error('Create the payment on your server using trusted order data, then pass checkoutUrl or paymentId to Youpi.pay(). Never put a merchant API secret in browser code.');
     }
 
     /**
