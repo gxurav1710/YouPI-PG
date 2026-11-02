@@ -132,6 +132,7 @@ CREATE TABLE IF NOT EXISTS payment_sessions (
 CREATE INDEX IF NOT EXISTS idx_payment_sessions_active ON payment_sessions (receiving_account_id, status);
 CREATE INDEX IF NOT EXISTS idx_payment_sessions_order ON payment_sessions (merchant_id, order_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_payment_sessions_device ON payment_sessions (device_id);
+CREATE INDEX IF NOT EXISTS idx_payment_sessions_created_id ON payment_sessions (created_at, id);
 -- At most one active/processing/queued/successful session per merchant order.
 -- Retrying a terminal (FAILED, EXPIRED, CANCELLED) order allows a new attempt with the true orderId.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_single_active_session_per_order
@@ -211,6 +212,9 @@ CREATE TABLE IF NOT EXISTS payment_webhook_outbox (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     PRIMARY KEY (payment_id, event_type)
 );
+
+CREATE INDEX IF NOT EXISTS idx_payment_webhook_outbox_created
+  ON payment_webhook_outbox (created_at, payment_id);
 
 CREATE TRIGGER IF NOT EXISTS trg_terminal_payment_webhook_outbox
 AFTER UPDATE OF status ON payment_sessions
