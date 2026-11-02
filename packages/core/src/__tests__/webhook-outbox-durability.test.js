@@ -35,7 +35,9 @@ test('outbox survives terminal transition and is prepared before network dispatc
       const row = db.queryOne('SELECT * FROM webhook_deliveries WHERE payment_id = ?', [session.id]);
       assert.ok(row, 'delivery MUST be durable before fetch');
       assert.equal(row.is_successful, 0);
-      assert.equal(row.attempt_count, 1);
+      // The first request is still in flight. Zero marks it for immediate boot
+      // recovery; dispatch increments the count after this request completes.
+      assert.equal(row.attempt_count, 0);
       assert.ok(row.next_retry_at, 'crash recovery lease MUST be set');
       assert.equal(row.id, opts.headers['X-Gateway-Delivery-Id']);
       return { ok: true, status: 200, text: async () => 'ok' };

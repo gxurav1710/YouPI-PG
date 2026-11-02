@@ -346,11 +346,11 @@ export function validateOutboundWebhookUrl(value) {
   return { valid: true, url };
 }
 
-const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
-const consumedOAuthStates = new Map();
+const STATE_WINDOW_MS = 10 * 60 * 1000;
+const consumedStates = new Map();
 
-function oauthStateMac(payload) {
-  return crypto.scryptSync(`oauth-state:${payload}`, getObserverToken(), 32).toString('hex');
+function signStatePayload(payload) {
+  return crypto.createHmac('sha256', getObserverToken()).update(`state:${payload}`).digest('hex');
 }
 
 /**
@@ -358,8 +358,8 @@ function oauthStateMac(payload) {
  * the callback accepts nothing that was not minted there, which blocks login-CSRF account linking.
  */
 export function createOAuthState() {
-  const payload = `${crypto.randomBytes(16).toString('hex')}.${Date.now() + OAUTH_STATE_TTL_MS}`;
-  return `${payload}.${oauthStateMac(payload)}`;
+  const payload = `${crypto.randomBytes(16).toString('hex')}.${Date.now() + STATE_WINDOW_MS}`;
+  return `${payload}.${signStatePayload(payload)}`;
 }
 
 /** Verifies signature and expiry, and accepts each state only once (per process). */
@@ -368,11 +368,14 @@ export function consumeOAuthState(state) {
   const parts = state.split('.');
   if (parts.length !== 3) return false;
   const [nonce, expiresAt, mac] = parts;
-  if (!safeEqual(mac, oauthStateMac(`${nonce}.${expiresAt}`))) return false;
+  const expectedMac = signStatePayload(`${nonce}.${expiresAt}`);
+  if (mac.length !== expectedMac.length || !crypto.timingSafeEqual(Buffer.from(mac, 'utf8'), Buffer.from(expectedMac, 'utf8'))) {
+    return false;
+  }
   const now = Date.now();
   if (!(Number(expiresAt) > now)) return false;
-  for (const [key, exp] of consumedOAuthStates) if (exp <= now) consumedOAuthStates.delete(key);
-  if (consumedOAuthStates.has(nonce)) return false;
-  consumedOAuthStates.set(nonce, Number(expiresAt));
+  for (const [key, exp] of consumedStates) if (exp <= now) consumedStates.delete(key);
+  if (consumedStates.has(nonce)) return false;
+  consumedStates.set(nonce, Number(expiresAt));
   return true;
 }

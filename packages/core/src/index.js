@@ -8,8 +8,8 @@ export * from './webhook-engine.js';
 export * from './bank-sms-parser.js';
 export * from './bank-email-parser.js';
 export * from './qr.js';
+export * from './stand-generator.js';
 export * from './verification-pipeline.js';
 export * from './statement-parser.js';
 export * from './statement-reconciliation.js';
 export * from './device-security.js';
-

@@ -89,6 +89,12 @@ export class GmailPoller {
     this.bootRetryTimer = null;
     this.bootVersion = 0;
     this.backoffDelayMs = 5000;
+
+    // Pagination & Lookback state (Issue #104)
+    this.maxPagesPerCycle = options.maxPagesPerCycle || Number(process.env.GMAIL_MAX_PAGES_PER_CYCLE || 5);
+    this.maxResultsPerPage = options.maxResultsPerPage || 10;
+    this.lastTopMessageId = null;
+    this.nextCatchUpPageToken = null;
   }
 
   clearBootRetryTimer() {
@@ -359,6 +365,7 @@ export class GmailPoller {
     }
     this.isRunning = false;
     this._isPolling = false;
+    this.nextCatchUpPageToken = null;
     this.lifecycleState = 'STOPPED';
     console.log('[Gmail Observer] Poller stopped.');
   }
@@ -374,51 +381,95 @@ export class GmailPoller {
 
       // Strict bank transaction alert filter (read-only search)
       const query = encodeURIComponent('from:(bank.in OR hdfcbank.net OR hdfcbank.com OR icicibank.com OR sbi.co.in OR axisbank.com OR kotak.com) OR (credit OR credited OR received OR upi OR deposit OR alert OR update)');
-      const listRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10&q=${query}`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` },
-        signal: AbortSignal.timeout(8000)
-      });
 
-      if (!listRes.ok) {
-        if (listRes.status === 401) {
-          this.cachedAccessToken = null;
+      let pageToken = this.nextCatchUpPageToken || null;
+      let pagesFetched = 0;
+      let hasMoreCatchUp = false;
+
+      while (pagesFetched < this.maxPagesPerCycle) {
+        if (!this.isRunning && this.lifecycleState === 'STOPPED') break;
+
+        let url = `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${this.maxResultsPerPage}&q=${query}`;
+        if (pageToken) {
+          url += `&pageToken=${encodeURIComponent(pageToken)}`;
         }
-        return;
-      }
+        pagesFetched++;
 
-      const listData = await listRes.json();
-      const messages = listData.messages || [];
+        const listRes = await fetch(url, {
+          headers: { 'Authorization': `Bearer ${accessToken}` },
+          signal: AbortSignal.timeout(8000)
+        });
 
-      const unseenMessages = messages.filter(m => !this.processedMessageIds.has(m.id));
-      if (unseenMessages.length > 0) {
-        await Promise.allSettled(unseenMessages.map(async (m) => {
-          try {
-            const msgRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=full`, {
-              headers: { 'Authorization': `Bearer ${accessToken}` },
-              signal: AbortSignal.timeout(8000)
-            });
-            if (!msgRes.ok) return;
-
-            const msgData = await msgRes.json();
-            const headers = msgData.payload?.headers || [];
-            const from = headers.find(h => h.name.toLowerCase() === 'from')?.value || '';
-            const subject = headers.find(h => h.name.toLowerCase() === 'subject')?.value || '';
-            const dateStr = headers.find(h => h.name.toLowerCase() === 'date')?.value || '';
-            const body = extractBodyFromGmailPayload(msgData.payload) || msgData.snippet || '';
-
-            await this.processEmail({
-              id: m.id,
-              messageId: m.id,
-              subject,
-              body,
-              from,
-              date: dateStr ? new Date(dateStr) : new Date(Number(msgData.internalDate || Date.now()))
-            });
-          } catch (msgErr) {
-            console.warn(`[Gmail Observer] Error fetching message:`, redactSensitiveData(msgErr.message));
+        if (!listRes.ok) {
+          if (listRes.status === 401) {
+            this.cachedAccessToken = null;
           }
-        }));
+          if (listRes.status === 400 && pageToken) {
+            // Expired or invalid pageToken: reset catchUpPageToken
+            this.nextCatchUpPageToken = null;
+          }
+          break;
+        }
+
+        const listData = await listRes.json();
+        const messages = listData.messages || [];
+
+        // Track newest message on the first page
+        if (!pageToken && messages.length > 0) {
+          const currentTopId = messages[0].id;
+          const isSameTop = this.lastTopMessageId && this.lastTopMessageId === currentTopId;
+          const wasBootLookback = this.lastTopMessageId === null;
+          this.lastTopMessageId = currentTopId;
+
+          const unseenOnPage1 = messages.filter(m => !this.processedMessageIds.has(m.id));
+          // If top message hasn't changed, all messages on page 1 are seen, and not in boot lookback or ongoing catch-up, stop early
+          if (isSameTop && unseenOnPage1.length === 0 && !this.nextCatchUpPageToken && !wasBootLookback) {
+            break;
+          }
+        }
+
+        const unseenMessages = messages.filter(m => !this.processedMessageIds.has(m.id));
+        if (unseenMessages.length > 0) {
+          await Promise.allSettled(unseenMessages.map(async (m) => {
+            try {
+              const msgRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=full`, {
+                headers: { 'Authorization': `Bearer ${accessToken}` },
+                signal: AbortSignal.timeout(8000)
+              });
+              if (!msgRes.ok) return;
+
+              const msgData = await msgRes.json();
+              const headers = msgData.payload?.headers || [];
+              const from = headers.find(h => h.name.toLowerCase() === 'from')?.value || '';
+              const subject = headers.find(h => h.name.toLowerCase() === 'subject')?.value || '';
+              const dateStr = headers.find(h => h.name.toLowerCase() === 'date')?.value || '';
+              const body = extractBodyFromGmailPayload(msgData.payload) || msgData.snippet || '';
+
+              await this.processEmail({
+                id: m.id,
+                messageId: m.id,
+                subject,
+                body,
+                from,
+                date: dateStr ? new Date(dateStr) : new Date(Number(msgData.internalDate || Date.now()))
+              });
+            } catch (msgErr) {
+              console.warn(`[Gmail Observer] Error fetching message:`, redactSensitiveData(msgErr.message));
+            }
+          }));
+        }
+
+        if (listData.nextPageToken) {
+          pageToken = listData.nextPageToken;
+          hasMoreCatchUp = true;
+        } else {
+          pageToken = null;
+          hasMoreCatchUp = false;
+          break;
+        }
       }
+
+      this.nextCatchUpPageToken = hasMoreCatchUp ? pageToken : null;
     } catch (err) {
       console.warn('[Gmail Observer] pollCycle error:', redactSensitiveData(err.message));
     } finally {

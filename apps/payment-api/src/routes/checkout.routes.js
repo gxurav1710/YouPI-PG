@@ -506,7 +506,7 @@ export function registerCheckoutRoutes(server, ctx) {
     if (!receivingAccount && snapshot?.id) {
       receivingAccount = ctx.accountRepo.findById(snapshot.id);
     }
-    if (!receivingAccount && session.method === 'UPI') {
+    if (!receivingAccount && [PaymentMethod.UPI, PaymentMethod.MANUAL_UPI].includes(session.method)) {
       receivingAccount = ctx.accountRepo.findActiveForMerchant(session.merchantId);
     }
 
@@ -1036,11 +1036,75 @@ export function registerCheckoutRoutes(server, ctx) {
     });
   });
 
+  // Manual UTR is a customer claim for independent review, never a payment confirmation.
+  server.post('/api/v1/checkout/:id/manual-utr', async (req, res, params) => {
+    const body = await HttpServer.parseBody(req).catch(() => ({}));
+    const session = ctx.sessionRepo.findById(params.id);
+    if (!session) {
+      HttpServer.json(res, 404, { error: 'Payment session not found.' });
+      return;
+    }
+    if (session.method !== PaymentMethod.MANUAL_UPI) {
+      HttpServer.json(res, 409, { error: 'This checkout does not use manual UPI verification.' });
+      return;
+    }
+    if (session.status !== PaymentStatus.ACTIVE && session.status !== PaymentStatus.MANUAL_REVIEW) {
+      HttpServer.json(res, 409, { error: 'This checkout is no longer accepting a transaction reference.' });
+      return;
+    }
+    const deviceAccess = checkSessionDeviceAccess(session, req, body, ctx);
+    if (!deviceAccess.allowed) {
+      HttpServer.json(res, deviceAccess.statusCode || 409, deviceAccess.body);
+      return;
+    }
+    const utr = String(body.utr || body.reference || '').trim();
+    if (!/^[A-Za-z0-9-]{6,35}$/.test(utr)) {
+      HttpServer.json(res, 400, { error: 'Enter a valid UPI reference (6–35 letters or digits).' });
+      return;
+    }
+    try {
+      const updated = ctx.sessionRepo.submitManualUtr(session.id, utr);
+      if (updated.status === PaymentStatus.MANUAL_REVIEW && session.status !== PaymentStatus.MANUAL_REVIEW) {
+        ctx.eventEmitter?.emit('PAYMENT.MANUAL_REVIEW', {
+          paymentId: updated.id,
+          orderId: updated.orderId,
+          merchantId: updated.merchantId,
+          amountPaise: updated.amountPaise,
+          reason: 'CUSTOMER_UTR_SUBMITTED'
+        });
+        server.broadcastSse(updated.id, 'status_change', {
+          status: PaymentStatus.MANUAL_REVIEW,
+          settlementState: 'PENDING_VERIFICATION'
+        });
+      }
+      HttpServer.json(res, 200, {
+        paymentId: updated.id,
+        orderId: updated.orderId,
+        status: 'PENDING_VERIFICATION',
+        settlementState: 'PENDING_VERIFICATION',
+        customerUtr: updated.customerUtr,
+        utrSubmittedAt: updated.utrSubmittedAt?.toISOString() || null,
+        message: 'Payment submitted. The merchant must verify it in the bank account.'
+      });
+    } catch (err) {
+      const duplicate = String(err?.message || '').includes('idx_manual_upi_utr_per_receiving_account')
+        || String(err?.message || '').includes('UNIQUE constraint failed');
+      HttpServer.json(res, duplicate ? 409 : 400, {
+        error: duplicate ? 'This UPI reference has already been submitted.' : (err.message || 'Could not submit the UPI reference.')
+      });
+    }
+  });
+
   // POST /api/v1/checkout/:id/payment-done
   server.post('/api/v1/checkout/:id/payment-done', async (req, res, params) => {
     const session = ctx.sessionRepo.findById(params.id);
     if (!session) {
       HttpServer.json(res, 404, { error: `Payment session not found: ${params.id}` });
+      return;
+    }
+
+    if (session.method === PaymentMethod.MANUAL_UPI) {
+      HttpServer.json(res, 409, { error: 'Manual UPI checkouts require a transaction reference; automatic observer verification is disabled.' });
       return;
     }
 
@@ -1172,6 +1236,10 @@ export function registerCheckoutRoutes(server, ctx) {
       return;
     }
 
+    if (session.method === PaymentMethod.MANUAL_UPI && method !== PaymentMethod.MANUAL_UPI) {
+      HttpServer.json(res, 409, { error: 'Manual UPI sessions cannot switch into an automatic payment flow.' });
+      return;
+    }
     const validMethods = [PaymentMethod.UPI, PaymentMethod.COD, PaymentMethod.CASH_COUNTER, PaymentMethod.CARD_COUNTER];
     if (!validMethods.includes(method)) {
       HttpServer.json(res, 400, { error: `Invalid payment method '${method}'. Allowed: ${validMethods.join(', ')}` });

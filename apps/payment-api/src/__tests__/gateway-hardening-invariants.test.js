@@ -23,6 +23,7 @@ describe('Gateway Hardening & Invariant Protection Test Suite (#23, #25, #26, #2
   let testDb;
 
   before(async () => {
+    process.env.NODE_ENV = 'test';
     testDb = new Database({ inMemory: true });
     apiInstance = await startPaymentApi(6291, testDb);
     baseUrl = `http://localhost:${apiInstance.port}`;
@@ -661,9 +662,7 @@ describe('Gateway Hardening & Invariant Protection Test Suite (#23, #25, #26, #2
     const dedicatedApiKey = 'mk_live_dedicated_merchant_api_key_6369';
     merchantRepo.update(merchantId, { apiKey: dedicatedApiKey });
 
-    // 1. Completely unauthenticated request naming the DEFAULT merchant -> allowed.
-    //    The public one-script integration (the browser SDK) cannot carry a merchant
-    //    secret, so this path has to stay open for the gateway's own merchant.
+    // 1. Even the default merchant requires server-side authentication.
     const url = new URL('/api/v1/payments', baseUrl);
     const unauthRes = await new Promise((resolve, reject) => {
       const req = http.request(url, {
@@ -678,7 +677,8 @@ describe('Gateway Hardening & Invariant Protection Test Suite (#23, #25, #26, #2
       req.write(JSON.stringify({ orderId: `UNAUTH-${Date.now()}`, amount: '100.00' }));
       req.end();
     });
-    assert.equal(unauthRes.status, 201);
+    assert.equal(unauthRes.status, 401);
+    assert.equal(unauthRes.body.code, 'MISSING_MERCHANT_KEY');
 
     // 1b. An unauthenticated request naming a DIFFERENT merchant -> 401, so an anonymous
     //     caller still cannot inject sessions into another tenant.

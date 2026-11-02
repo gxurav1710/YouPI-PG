@@ -26,8 +26,11 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
   let testDb;
   let merchantSecret;
   let merchantWebhookUrl;
+  let merchantId;
 
   before(async () => {
+    process.env.NODE_ENV = 'test';
+    process.env.YOUPI_ALLOWED_RETURN_ORIGINS = 'https://merchant.example';
     testDb = new Database({ inMemory: true });
     // Use an ephemeral random port (e.g. 0 or high port 6199) to prevent collisions
     serverInstance = await startServer(6199, testDb);
@@ -36,6 +39,7 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
     // merchant, so read the seeded secret through the repository (the raw column is
     // encrypted at rest).
     const seededMerchant = new MerchantRepository(testDb).findAll()[0];
+    merchantId = seededMerchant.id;
     merchantSecret = seededMerchant.webhookSecret;
     merchantWebhookUrl = seededMerchant.webhookUrl;
   });
@@ -51,7 +55,7 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
       const url = new URL(path, options.baseUrl || baseUrl);
       const reqOpts = {
         method: options.method || 'GET',
-        headers: authHeadersFor(path, options.headers || {})
+        headers: authHeadersFor(path, { ...(path.startsWith('/api/v1/payments') ? { 'X-Merchant-Id': merchantId } : {}), ...(options.headers || {}) })
       };
 
       const req = http.request(url, reqOpts, res => {
@@ -1149,13 +1153,13 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
       assert.ok(codAfterCancel.body.error.includes('Cannot place COD order for terminal session'));
     });
 
-    test('Merchant API Key rotation, inspection, and flexible data-youpi-key / X-Merchant-Id resolution (Issue #89)', async () => {
+    test('Merchant API key rotation requires X-Merchant-Key and rejects public-key/placeholder authentication', async () => {
       // 1. Inspect merchant settings via admin API
       const settingsBefore = await request('/api/v1/admin/merchant-settings');
       assert.equal(settingsBefore.status, 200);
       assert.ok(settingsBefore.body.merchantId);
       assert.equal(settingsBefore.body.publishableKey, settingsBefore.body.merchantId);
-      assert.ok(settingsBefore.body.merchantKey, 'merchantKey should be returned in merchant-settings');
+      assert.equal(settingsBefore.body.merchantKey, '', 'legacy webhook secrets must not be returned as merchant API keys');
 
       // 2. Rotate Merchant API Key via POST /api/v1/admin/merchant-key/rotate
       const rotateRes = await request('/api/v1/admin/merchant-key/rotate', {
@@ -1185,7 +1189,7 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
       });
       assert.equal(payWithKeyHeader.status, 201);
 
-      // 5. Create payment when developer passes mk_live_... directly in data-youpi-key (sent as X-Merchant-Id by youpi.js)
+      // A secret in X-Merchant-Id is not a credential flow; the SDK never sends it.
       const payWithKeyAsId = await request('/api/v1/payments', {
         method: 'POST',
         headers: {
@@ -1196,7 +1200,7 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
           amount: '135.00'
         }
       });
-      assert.equal(payWithKeyAsId.status, 201);
+      assert.equal(payWithKeyAsId.status, 400);
 
       // 6. Create payment when developer leaves documentation placeholder YOUR_MERCHANT_KEY in data-youpi-key
       const payWithPlaceholder = await request('/api/v1/payments', {
@@ -1209,7 +1213,7 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
           amount: '145.00'
         }
       });
-      assert.equal(payWithPlaceholder.status, 201);
+      assert.equal(payWithPlaceholder.status, 400);
     });
   });
 });

@@ -98,6 +98,5 @@ export function isPaymentOwner(req, session, ctx) {
   if (typeof ctx.merchantRepo?.verifyApiKey === 'function') {
     return ctx.merchantRepo.verifyApiKey(merchant, presented.trim());
   }
-  if (!merchant.webhookSecret) return false;
-  return safeEqual(presented.trim(), merchant.webhookSecret);
+  return false;
 }

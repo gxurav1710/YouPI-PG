@@ -170,6 +170,35 @@ export class AdminServer {
         return;
       }
 
+
+      // Stand Proxy: /stand, /stand/print, /stand/qr.svg -> Checkout Portal (Port 7000)
+      if (pathname.startsWith('/stand')) {
+        const checkoutUrl = process.env.CHECKOUT_PORTAL_URL || 'http://localhost:7000';
+        const targetUrl = new URL(req.url, checkoutUrl);
+        const requestClient = targetUrl.protocol === 'https:' ? https : http;
+        const proxyReq = requestClient.request({
+          hostname: targetUrl.hostname,
+          port: targetUrl.port || undefined,
+          path: `${targetUrl.pathname}${targetUrl.search}`,
+          method: req.method,
+          headers: sanitizedForwardHeaders(req, targetUrl.host)
+        }, (proxyRes) => {
+          res.writeHead(proxyRes.statusCode, proxyRes.headers);
+          proxyRes.pipe(res);
+        });
+
+        proxyReq.on('error', (err) => {
+          if (!res.headersSent) {
+            res.writeHead(502, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Checkout portal unavailable for stand', details: err.message }));
+          }
+        });
+
+        req.on('data', chunk => proxyReq.write(chunk));
+        req.on('end', () => proxyReq.end());
+        return;
+      }
+
       // Transparent API Proxy: /api/* -> Payment Core REST API
       if (pathname.startsWith('/api/')) {
         const targetUrl = new URL(req.url, this.apiBaseUrl);

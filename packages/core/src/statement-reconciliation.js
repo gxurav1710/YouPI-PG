@@ -134,10 +134,47 @@ export class StatementReconciliation {
       if (!observedOn || !this.withinPostingWindow(observedOn, line.bookedOn)) {
         return this.finish(rowId, 'CONFLICT', 'STATEMENT_DATE_OUTSIDE_WINDOW', null);
       }
-      return this.reconcile(rowId, held[0]);
+      return this.reconcile(rowId, held[0], seen[0]);
     }
     if (held.length > 1 && seen.length >= 1) {
       return this.finish(rowId, 'CONFLICT', 'MULTIPLE_SESSIONS', null);
+    }
+    if (seen.length >= 1) {
+      let candidateSessionId = seen[0].attributed_payment_id || null;
+      if (!candidateSessionId && seen[0].raw_payload) {
+        try {
+          const parsedPayload = typeof seen[0].raw_payload === 'string'
+            ? JSON.parse(seen[0].raw_payload)
+            : seen[0].raw_payload;
+          candidateSessionId = parsedPayload?.lateMatchedSessionId || parsedPayload?.targetSessionId || null;
+        } catch {}
+      }
+      this.auditRepo?.log({
+        entityType: 'PAYMENT_OBSERVATION',
+        entityId: seen[0].id,
+        action: 'UNMATCHED_STATEMENT_OBSERVATION_CORROBORATED',
+        actorType: 'ADMIN',
+        details: {
+          statementLineId: rowId,
+          receivingAccountId,
+          utr: line.utr,
+          amountPaise: String(line.amountPaise),
+          attributionStatus: seen[0].attribution_status,
+          candidatePaymentSessionId: candidateSessionId
+        }
+      });
+      this.eventEmitter?.emit('PAYMENT.UNMATCHED_RECONCILIATION_NEEDED', {
+        receivingAccountId,
+        observationId: seen[0].id,
+        candidatePaymentSessionId: candidateSessionId,
+        utr: line.utr,
+        amountPaise: BigInt(line.amountPaise),
+        statementLineId: rowId
+      });
+      return this.finish(rowId, 'UNMATCHED', 'NO_OBSERVED_SESSION', null, {
+        observationId: seen[0].id,
+        candidatePaymentSessionId: candidateSessionId
+      });
     }
     return this.finish(rowId, 'UNMATCHED', 'NO_OBSERVED_SESSION', null);
   }
@@ -192,8 +229,10 @@ export class StatementReconciliation {
 
   observationsForReference(receivingAccountId, line) {
     return this.db.query(`
-      SELECT id, observed_at FROM payment_observations
+      SELECT id, observed_at, attribution_status, attributed_payment_id, raw_payload
+      FROM payment_observations
       WHERE receiving_account_id = ? AND bank_reference_number = ? AND amount_paise = ?
+      ORDER BY observed_at ASC
     `, [receivingAccountId, line.utr, line.amountPaise]);
   }
 
@@ -217,11 +256,34 @@ export class StatementReconciliation {
     }
   }
 
-  reconcile(rowId, session) {
+  reconcile(rowId, session, matchedObs = null) {
     const before = session.status;
     const updated = this.sessionRepo.transitionToTerminal(session.id, PaymentStatus.RECONCILED);
     if (updated.status !== PaymentStatus.RECONCILED) {
       return this.finish(rowId, 'CONFLICT', 'TRANSITION_REJECTED', null);
+    }
+    if (matchedObs?.id) {
+      try {
+        this.db.execute(
+          `UPDATE payment_observations
+           SET attribution_status = 'ATTRIBUTED',
+               attributed_payment_id = COALESCE(attributed_payment_id, ?)
+           WHERE id = ?`,
+          [session.id, matchedObs.id]
+        );
+        this.db.execute(
+          `UPDATE payment_sessions
+           SET attributed_observation_id = COALESCE(attributed_observation_id, ?)
+           WHERE id = ?`,
+          [matchedObs.id, session.id]
+        );
+      } catch {
+        // If another observation already holds the unique UTR attribution index, still mark ATTRIBUTED
+        this.db.execute(
+          `UPDATE payment_observations SET attribution_status = 'ATTRIBUTED' WHERE id = ?`,
+          [matchedObs.id]
+        );
+      }
     }
     const emit = before !== PaymentStatus.RECONCILED;
     return this.finish(rowId, 'RECONCILED', 'BANK_STATEMENT_MATCH', updated.id, { emit, session: updated });
@@ -257,7 +319,9 @@ export class StatementReconciliation {
       matchStatus,
       matchReason,
       paymentSessionId,
-      statementLineId: rowId
+      statementLineId: rowId,
+      ...(options.observationId ? { observationId: options.observationId } : {}),
+      ...(options.candidatePaymentSessionId ? { candidatePaymentSessionId: options.candidatePaymentSessionId } : {})
     };
   }
 }

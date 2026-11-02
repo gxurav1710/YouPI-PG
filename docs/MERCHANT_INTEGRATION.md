@@ -16,6 +16,8 @@ Public outcomes:
 
 Breaking change: UPI observer webhooks now send `X-Gateway-Event: OBSERVED_SUCCESS` and `event: "OBSERVED_SUCCESS"`. Older integrations that treated UPI `SUCCESS` as paid must switch. `SUCCESS` remains the COD and counter event.
 
+Webhook crash recovery queues each new dispatchable outcome in the same SQLite transaction as its payment-status change. One payment may therefore have separate pending `OBSERVED_SUCCESS`, `MANUAL_REVIEW`, and `RECONCILED` notifications. Dispatching one outcome does not remove the others. Upgrading the outbox preserves already-pending notifications but does not create notifications for historical UPI outcomes. Merchants must still deduplicate by delivery ID: a crash after receipt but before acknowledgement can cause a retry. Delivery order must not be used as a substitute for checking the event and `settlementState`.
+
 ---
 
 ## 2. Using `@youpi/merchant-sdk`

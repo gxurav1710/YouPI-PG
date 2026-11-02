@@ -47,8 +47,39 @@ export class ObservationRepository {
     return this.mapRow(row);
   }
 
-  findByFingerprint(fingerprintHash) {
-    const row = this.db.queryOne('SELECT * FROM payment_observations WHERE fingerprint_hash = ?', [fingerprintHash]);
+  /**
+   * @param {string} fingerprintHash
+   * @param {string} [source] Restrict to one channel. A UTR fingerprint is shared by every
+   *   channel, so after a cross-channel upgrade the unfiltered lookup may return another
+   *   channel's row and hide a same-channel replay.
+   */
+  findByFingerprint(fingerprintHash, source) {
+    const row = source
+      ? this.db.queryOne('SELECT * FROM payment_observations WHERE fingerprint_hash = ? AND source = ? LIMIT 1', [fingerprintHash, source])
+      : this.db.queryOne('SELECT * FROM payment_observations WHERE fingerprint_hash = ?', [fingerprintHash]);
+    if (!row) return null;
+    return this.mapRow(row);
+  }
+
+  /**
+   * Finds an existing observation with the same fingerprint within the same independent
+   * channel family ('GMAIL' vs SMS/device channels 'SMS', 'SMS_GATEWAY', 'GOOGLE_MESSAGES', 'ANDROID_OBSERVER').
+   * @param {string} fingerprintHash
+   * @param {string} source
+   */
+  findByFingerprintOrFamily(fingerprintHash, source) {
+    const normalized = String(source || '').trim().toUpperCase();
+    if (!normalized) return this.findByFingerprint(fingerprintHash);
+    if (normalized === 'GMAIL') {
+      return this.findByFingerprint(fingerprintHash, 'GMAIL');
+    }
+    const row = this.db.queryOne(
+      `SELECT * FROM payment_observations
+       WHERE fingerprint_hash = ?
+         AND UPPER(source) IN ('SMS', 'SMS_GATEWAY', 'GOOGLE_MESSAGES', 'ANDROID_OBSERVER')
+       LIMIT 1`,
+      [fingerprintHash]
+    );
     if (!row) return null;
     return this.mapRow(row);
   }
@@ -59,6 +90,22 @@ export class ObservationRepository {
       WHERE receiving_account_id = ? AND attribution_status = ?
       ORDER BY observed_at ASC
     `, [receivingAccountId, ObservationAttributionStatus.UNATTRIBUTED]);
+
+    return rows.map(r => this.mapRow(r));
+  }
+
+  findUnmatchedForReconciliation(receivingAccountId) {
+    const rows = this.db.query(`
+      SELECT * FROM payment_observations
+      WHERE receiving_account_id = ?
+        AND attribution_status IN (?, ?, ?)
+      ORDER BY observed_at ASC
+    `, [
+      receivingAccountId,
+      ObservationAttributionStatus.UNATTRIBUTED,
+      ObservationAttributionStatus.LATE_UNMATCHED,
+      ObservationAttributionStatus.AMBIGUOUS
+    ]);
 
     return rows.map(r => this.mapRow(r));
   }
@@ -75,6 +122,30 @@ export class ObservationRepository {
   }
 
   markAttributed(id, paymentId) {
+    const current = this.findById(id);
+    if (current?.bankReferenceNumber) {
+      const existingSameSession = this.db.queryOne(
+        `SELECT id FROM payment_observations
+         WHERE bank_reference_number = ?
+           AND attributed_payment_id = ?
+           AND id != ?
+         LIMIT 1`,
+        [current.bankReferenceNumber, paymentId, id]
+      );
+      if (existingSameSession) {
+        const updatedPayload = {
+          ...(current.rawPayload || {}),
+          corroboratedPaymentId: paymentId
+        };
+        this.db.execute(`
+          UPDATE payment_observations
+          SET attribution_status = ?, raw_payload = ?
+          WHERE id = ?
+        `, [ObservationAttributionStatus.ATTRIBUTED, JSON.stringify(updatedPayload), id]);
+        return this.findById(id);
+      }
+    }
+
     this.db.execute(`
       UPDATE payment_observations
       SET attribution_status = ?, attributed_payment_id = ?
@@ -104,7 +175,21 @@ export class ObservationRepository {
     return this.findById(id);
   }
 
-  markLateUnmatched(id) {
+  markLateUnmatched(id, candidatePaymentId = null) {
+    if (candidatePaymentId) {
+      const current = this.findById(id);
+      const updatedPayload = {
+        ...(current?.rawPayload || {}),
+        lateMatchedSessionId: candidatePaymentId
+      };
+      this.db.execute(`
+        UPDATE payment_observations
+        SET attribution_status = ?, raw_payload = ?
+        WHERE id = ?
+      `, [ObservationAttributionStatus.LATE_UNMATCHED, JSON.stringify(updatedPayload), id]);
+      return this.findById(id);
+    }
+
     this.db.execute(`
       UPDATE payment_observations
       SET attribution_status = ?

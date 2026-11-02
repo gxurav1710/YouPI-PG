@@ -54,6 +54,9 @@ describe('Merchant Admin Integration Tests', () => {
     assert.ok(res.text.includes('Payment Observers (SMS & Gmail)'));
     assert.ok(res.text.includes('Android SMS Gateway'));
     assert.ok(res.text.includes('Gmail Direct API'));
+    assert.ok(res.text.includes('Payment QR Stand Studio'));
+    assert.ok(res.text.includes('subViewStoreStand'));
+    assert.ok(res.text.includes('Accepts payments above ₹2,000'));
   });
 
   test('GET /api/admin/tickets requires the admin token', async () => {
@@ -92,5 +95,15 @@ describe('Merchant Admin Integration Tests', () => {
     assert.ok(html.includes('Security Engine v2 &bull; ApexMerchant Suite'));
 
     process.env = { ...origEnv };
+  });
+
+  test('Payment QR Stand Studio tab and stand controls are present in admin dashboard', async () => {
+    const res = await get('/');
+    assert.equal(res.status, 200);
+    assert.ok(res.text.includes('Payment QR Stand Studio'));
+    assert.ok(res.text.includes('id="subViewStoreStand"'));
+    assert.ok(res.text.includes('standInputVpa'));
+    assert.ok(res.text.includes('standInputMobile'));
+    assert.ok(res.text.includes('Accepts payments above ₹2,000'));
   });
 });

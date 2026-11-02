@@ -611,6 +611,27 @@ export class PaymentVerificationPipeline {
     // [ STAGE 4 ]: Payment Verification
     // =========================================================================
     let stage4;
+    const hasExplicitSessionId = Boolean(input.paymentSessionId);
+    let hasMultipleLiveAmountMatches = false;
+
+    if (!hasExplicitSessionId && parsedData?.amountPaise) {
+      const targetAccountId = session?.receivingAccountId || input.receivingAccountId;
+      if (targetAccountId) {
+        const liveAmountRows = this.db.query(`
+          SELECT * FROM payment_sessions
+          WHERE receiving_account_id = ?
+            AND status IN ('ACTIVE', 'PROCESSING')
+            AND amount_paise = ?
+          ORDER BY created_at DESC
+        `, [targetAccountId, Number(parsedData.amountPaise)]);
+        if (liveAmountRows.length > 1) {
+          hasMultipleLiveAmountMatches = true;
+          session = this.sessionRepo.mapRow(liveAmountRows[0]);
+        } else if (liveAmountRows.length === 1) {
+          session = this.sessionRepo.mapRow(liveAmountRows[0]);
+        }
+      }
+    }
 
     if (!session && parsedData?.amountPaise) {
       // Amount alone is not an identifier: two merchants can legitimately have an identical
@@ -618,16 +639,19 @@ export class PaymentVerificationPipeline {
       // and then only within that VPA's merchant.
       const scopeByVpa = observedVpa || (parsedData.vpa ? String(parsedData.vpa).toLowerCase() : null);
       if (scopeByVpa) {
-        const matchRow = this.db.queryOne(`
+        const matchRows = this.db.query(`
           SELECT ps.* FROM payment_sessions ps
           JOIN payment_receiving_accounts ra ON ps.receiving_account_id = ra.id
           WHERE ps.status IN ('ACTIVE', 'PROCESSING')
             AND ps.amount_paise = ?
             AND LOWER(ra.upi_id) = ?
-          ORDER BY ps.created_at DESC LIMIT 1
+          ORDER BY ps.created_at DESC
         `, [Number(parsedData.amountPaise), scopeByVpa]);
-        if (matchRow) {
-          session = this.sessionRepo.mapRow(matchRow);
+        if (matchRows.length > 1) {
+          hasMultipleLiveAmountMatches = true;
+        }
+        if (matchRows.length >= 1) {
+          session = this.sessionRepo.mapRow(matchRows[0]);
         }
       }
     }
@@ -759,8 +783,10 @@ export class PaymentVerificationPipeline {
       observedAt: receivedAt
     });
 
-    const existingObs = this.obsRepo.findByFingerprint(fingerprint);
-    if (existingObs && existingObs.source === observerSourceEnum) {
+    const existingObs = this.obsRepo.findByFingerprintOrFamily
+      ? this.obsRepo.findByFingerprintOrFamily(fingerprint, observerSourceEnum)
+      : this.obsRepo.findByFingerprint(fingerprint, observerSourceEnum);
+    if (existingObs) {
       stage4 = {
         stage: 4,
         name: 'VERIFICATION',
@@ -1121,7 +1147,7 @@ export class PaymentVerificationPipeline {
         ...observation,
         raw: rawText,
         is_test: isTest,
-        targetSessionId: session?.id
+        targetSessionId: hasMultipleLiveAmountMatches ? undefined : (hasExplicitSessionId ? session?.id : session?.id)
       },
       amountPaise: parsedData.amountPaise,
       amount: parsedData.amount,
@@ -1141,13 +1167,22 @@ export class PaymentVerificationPipeline {
           verificationTag: 'DEFAULT'
         };
 
+    const isAmbiguousHold = Boolean(
+      attributionResult.ambiguous ||
+      attributionResult.outcomeStatus === PaymentStatus.MANUAL_REVIEW
+    );
+
     stage6 = {
       stage: 6,
       name: 'ATTRIBUTION',
-      status: attributionResult.attributed ? 'ATTRIBUTED' : 'UNRESOLVED',
+      status: attributionResult.attributed
+        ? 'ATTRIBUTED'
+        : (isAmbiguousHold ? 'AMBIGUOUS_HELD' : 'UNRESOLVED'),
       outcomeStatus: attributionResult.outcomeStatus,
       details: {
         attributed: attributionResult.attributed,
+        ambiguous: Boolean(attributionResult.ambiguous),
+        reason: attributionResult.reason || null,
         paymentSessionId: attributionResult.paymentSessionId,
         observationId: attributionResult.observationId,
         attributedSessionId: attributionResult.paymentSessionId,
@@ -1157,13 +1192,22 @@ export class PaymentVerificationPipeline {
       }
     };
 
-    const finalStatus = attributionResult.attributed ? 'VERIFIED' : 'UNRESOLVED';
+    const finalStatus = attributionResult.attributed
+      ? 'VERIFIED'
+      : (isAmbiguousHold ? PaymentStatus.MANUAL_REVIEW : 'UNRESOLVED');
 
     // Refresh session state after attribution
     const updatedSession = this.sessionRepo.findById(session.id);
 
     return buildResult({
       finalStatus,
+      failingStage: attributionResult.attributed ? null : 6,
+      failingCondition: attributionResult.attributed
+        ? null
+        : (attributionResult.reason || attributionResult.outcomeStatus || null),
+      failingReason: isAmbiguousHold
+        ? `Payment held in MANUAL_REVIEW due to ambiguous session match (${attributionResult.reason || 'AMBIGUOUS_SESSION_MATCH'}).`
+        : null,
       stage2,
       stage3,
       stage4,

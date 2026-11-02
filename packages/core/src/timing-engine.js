@@ -207,9 +207,9 @@ export class TimingEngine {
       return session; // cannot cancel in-flight PROCESSING or already terminal sessions
     }
 
-    this.clearTimers(sessionId);
-
     const updated = this.sessionRepo.transitionToTerminal(sessionId, PaymentStatus.CANCELLED);
+
+    this.clearTimers(sessionId);
 
     if (this.auditRepo) {
       this.auditRepo.log({

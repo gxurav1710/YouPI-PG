@@ -1,6 +1,6 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { Database } from '@youpi/db';
+import { Database, MerchantRepository } from '@youpi/db';
 import { startServer as startPaymentApi } from '../../../../apps/payment-api/src/index.js';
 import { YoupiPaymentClient } from '../index.js';
 import { generateHmac } from '@youpi/common';
@@ -10,8 +10,10 @@ describe('Merchant SDK Integration Tests', () => {
   let client;
   let testDb;
   const merchantSecret = 'sdk_test_webhook_secret_9988';
+  const merchantApiKey = 'mk_live_sdk_api_key_not_the_webhook_secret_9988';
 
   before(async () => {
+    process.env.YOUPI_ALLOWED_RETURN_ORIGINS = 'https://store.example';
     testDb = new Database({ inMemory: true });
     apiInstance = await startPaymentApi(6195, testDb);
 
@@ -20,10 +22,12 @@ describe('Merchant SDK Integration Tests', () => {
       merchantSecret,
       '00000000-0000-0000-0000-000000000001'
     ]);
+    new MerchantRepository(testDb).update('00000000-0000-0000-0000-000000000001', { apiKey: merchantApiKey });
 
     client = new YoupiPaymentClient({
       apiUrl: `http://localhost:${apiInstance.port}`,
       merchantId: '00000000-0000-0000-0000-000000000001',
+      apiKey: merchantApiKey,
       webhookSecret: merchantSecret
     });
   });

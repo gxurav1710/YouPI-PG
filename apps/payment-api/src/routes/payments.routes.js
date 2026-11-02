@@ -1,5 +1,5 @@
 import { HttpServer } from '../server.js';
-import { toPaise, toRupeesString, resolveRuntimeUrls, PaymentStatus, safeEqual, verifyHmac } from '@youpi/common';
+import { toPaise, toRupeesString, resolveRuntimeUrls, PaymentStatus, PaymentMethod } from '@youpi/common';
 import { isTerminalStatus, toPublicOutcome, settlementStateFor, verifyRegisteredDeviceCredentials } from '@youpi/core';
 import { isAdminRequest, isPaymentOwner } from '../auth-guard.js';
 import { checkUpiServerHealth, observerHealthEnforced, upiObserversAcceptingPayments } from './checkout.routes.js';
@@ -54,24 +54,14 @@ export function registerPaymentRoutes(server, ctx) {
       'YOUR_MERCHANT_ID'
     ]);
     let merchant = null;
-    let matchedViaApiKeyInMerchantId = false;
-
     if (rawMerchantId && !docPlaceholders.has(rawMerchantId.toUpperCase())) {
       merchant = ctx.merchantRepo.findById(rawMerchantId);
       if (!merchant && typeof ctx.merchantRepo.findBySlug === 'function') {
         merchant = ctx.merchantRepo.findBySlug(rawMerchantId);
       }
-      if (!merchant && typeof ctx.merchantRepo.verifyApiKey === 'function') {
-        // Support developers who put their secret Merchant API Key (`mk_live_...` / webhookSecret) into `data-youpi-key` / `X-Merchant-Id`
-        const allMerchants = ctx.merchantRepo.findAll();
-        const byKey = allMerchants.find(m => ctx.merchantRepo.verifyApiKey(m, rawMerchantId));
-        if (byKey) {
-          merchant = byKey;
-          matchedViaApiKeyInMerchantId = true;
-        }
-      }
     } else {
-      merchant = ctx.merchantRepo.getDefault ? ctx.merchantRepo.getDefault() : (ctx.merchantRepo.findById('00000000-0000-0000-0000-000000000001') || ctx.merchantRepo.findAll()[0]);
+      HttpServer.json(res, 400, { error: 'X-Merchant-Id is required.' });
+      return;
     }
 
     if (!merchant) {
@@ -81,47 +71,20 @@ export function registerPaymentRoutes(server, ctx) {
 
     const presentedMerchantKey = req.headers['x-merchant-key'] !== undefined
       ? req.headers['x-merchant-key']
-      : (body.merchantKey !== undefined ? body.merchantKey : (matchedViaApiKeyInMerchantId ? rawMerchantId : undefined));
-    const presentedOrderToken = req.headers['x-order-token'] || body.orderToken;
-
+      : undefined;
     if (presentedMerchantKey !== undefined && presentedMerchantKey !== null) {
       const keyValid = typeof ctx.merchantRepo.verifyApiKey === 'function'
-        ? ctx.merchantRepo.verifyApiKey(merchant, String(presentedMerchantKey))
-        : (Boolean(merchant.webhookSecret) && safeEqual(String(presentedMerchantKey).trim(), merchant.webhookSecret));
+        && ctx.merchantRepo.verifyApiKey(merchant, String(presentedMerchantKey));
       if (!keyValid) {
         HttpServer.json(res, 401, { error: 'Invalid merchant key', code: 'INVALID_MERCHANT_KEY' });
         return;
       }
-    } else if (presentedOrderToken) {
-      let tokenAmountPaise;
-      try {
-        tokenAmountPaise = toPaise(body.amount);
-      } catch {
-        tokenAmountPaise = -1n;
-      }
-      const tokenCurrency = (body.currency || 'INR').toUpperCase();
-      const canonicalOrderPayload = `${merchant.id}:${body.orderId || ''}:${tokenAmountPaise.toString()}:${tokenCurrency}`;
-      const rawTokenSig = String(presentedOrderToken).replace(/^sha256=/, '').trim();
-      if (!merchant.webhookSecret || !verifyHmac(canonicalOrderPayload, merchant.webhookSecret, rawTokenSig)) {
-        HttpServer.json(res, 401, { error: 'Invalid order token', code: 'INVALID_ORDER_TOKEN' });
-        return;
-      }
     } else if (!isAdminRequest(req)) {
-      // No credential was presented. The public one-script integration (the browser SDK)
-      // cannot carry a merchant secret, so this path stays open - but only for the
-      // gateway's own default merchant. Naming a different merchant requires that
-      // merchant's key (or an order token), so an anonymous caller still cannot inject
-      // sessions into another tenant's queue.
-      const defaultMerchant = ctx.merchantRepo.getDefault
-        ? ctx.merchantRepo.getDefault()
-        : (ctx.merchantRepo.findById('00000000-0000-0000-0000-000000000001') || ctx.merchantRepo.findAll()[0]);
-      if (!defaultMerchant || merchant.id !== defaultMerchant.id) {
-        HttpServer.json(res, 401, {
-          error: 'Merchant API key is required (X-Merchant-Key) for this merchant.',
-          code: 'MISSING_MERCHANT_KEY'
-        });
-        return;
-      }
+      HttpServer.json(res, 401, {
+        error: 'A server-side merchant API key is required.',
+        code: 'MISSING_MERCHANT_KEY'
+      });
+      return;
     }
 
     if (!body.orderId || !body.amount) {
@@ -168,8 +131,15 @@ export function registerPaymentRoutes(server, ctx) {
         HttpServer.json(res, 400, { error: 'returnUrl must be an absolute http(s) URL.' });
         return;
       }
-      if (parsedReturnUrl.protocol !== 'http:' && parsedReturnUrl.protocol !== 'https:') {
+      if ((parsedReturnUrl.protocol !== 'http:' && parsedReturnUrl.protocol !== 'https:')
+        || parsedReturnUrl.username || parsedReturnUrl.password) {
         HttpServer.json(res, 400, { error: 'returnUrl must use the http or https scheme.' });
+        return;
+      }
+      const allowedReturnOrigins = String(process.env.YOUPI_ALLOWED_RETURN_ORIGINS || '')
+        .split(/[\s,]+/).map(value => value.trim()).filter(Boolean);
+      if (!allowedReturnOrigins.includes(parsedReturnUrl.origin)) {
+        HttpServer.json(res, 400, { error: 'returnUrl origin is not allowlisted for this gateway.' });
         return;
       }
       body.returnUrl = parsedReturnUrl.href;
@@ -198,8 +168,17 @@ export function registerPaymentRoutes(server, ctx) {
     }
 
     // Check idempotency & active session state
+    const requestedMethod = body.method || PaymentMethod.UPI;
+    if (![PaymentMethod.UPI, PaymentMethod.MANUAL_UPI, PaymentMethod.COD, PaymentMethod.CASH_COUNTER, PaymentMethod.CARD_COUNTER].includes(requestedMethod)) {
+      HttpServer.json(res, 400, { error: 'Unsupported payment method.' });
+      return;
+    }
     const existing = ctx.sessionRepo.findByOrderId(merchant.id, body.orderId);
     if (existing) {
+      if (existing.method !== requestedMethod) {
+        HttpServer.json(res, 409, { error: 'ORDER_PAYMENT_METHOD_MISMATCH', code: 'ORDER_PAYMENT_METHOD_MISMATCH' });
+        return;
+      }
       const existingCurrency = (existing.currency || 'INR').toUpperCase();
       if (existing.amountPaise !== amountPaise || existingCurrency !== requestedCurrency) {
         HttpServer.json(res, 409, {
@@ -286,9 +265,10 @@ export function registerPaymentRoutes(server, ctx) {
       body.orderId = body.orderId.replace(/-R\d+$/, '');
     }
 
-    const isCounterPayment = body.method === 'CASH_COUNTER' || body.method === 'CARD_COUNTER';
-    const isCod = body.method === 'COD';
-    if (!isCounterPayment && !isCod && observerHealthEnforced()) {
+    const isCounterPayment = requestedMethod === PaymentMethod.CASH_COUNTER || requestedMethod === PaymentMethod.CARD_COUNTER;
+    const isCod = requestedMethod === PaymentMethod.COD;
+    const isManualUpi = requestedMethod === PaymentMethod.MANUAL_UPI;
+    if (!isCounterPayment && !isCod && !isManualUpi && observerHealthEnforced()) {
       const health = await checkUpiServerHealth(ctx, [], 'ONLINE', merchant.id);
       if (!upiObserversAcceptingPayments(health)) {
         HttpServer.json(res, 503, {
@@ -389,7 +369,7 @@ export function registerPaymentRoutes(server, ctx) {
       orderId: body.orderId,
       amountPaise,
       currency: body.currency || 'INR',
-      method: body.method || 'UPI',
+      method: requestedMethod,
       status: initialStatus,
       returnUrl: body.returnUrl || null,
       idempotencyKey: idempotencyKey || null,

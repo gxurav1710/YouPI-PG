@@ -34,7 +34,7 @@ export class WebhookEngine {
     // The bank reference (UTR/RRN) lives on the attributed observation, not on the
     // session row. Merchants need it to reconcile a webhook against their bank
     // statement, and it is part of the documented webhook contract.
-    let utr = session.utr || session.bankReferenceNumber || session.bank_reference_number || '';
+    let utr = session.customerUtr || session.customer_utr || session.utr || session.bankReferenceNumber || session.bank_reference_number || '';
     const attributedObsId = session.attributedObservationId || session.attributed_observation_id;
     if (!utr && attributedObsId) {
       try {
@@ -109,8 +109,8 @@ export class WebhookEngine {
     // is missing or unsafe, KEEP that entry instead of recording an irrecoverable
     // synthetic failure row; the operator can repair configuration and replay.
     const isOutboxed = Boolean(this.db.queryOne(
-      'SELECT payment_id FROM payment_webhook_outbox WHERE payment_id = ?',
-      [session.id]
+      'SELECT payment_id FROM payment_webhook_outbox WHERE payment_id = ? AND event_type = ?',
+      [session.id, publicOutcome]
     ));
 
     // Direct non-outboxed dispatches still write an auditable failure record.
@@ -214,7 +214,7 @@ export class WebhookEngine {
     }
 
     // Outbox cleanup commits together with durable delivery preparation.
-    this.db.execute('DELETE FROM payment_webhook_outbox WHERE payment_id = ?', [session.id]);
+    this.db.execute('DELETE FROM payment_webhook_outbox WHERE payment_id = ? AND event_type = ?', [session.id, publicOutcome]);
 
     const signature = generateHmac(payloadString, merchant.webhookSecret);
     const timestampedSignature = generateHmac(`${timestamp}.${payloadString}`, merchant.webhookSecret);
@@ -235,7 +235,7 @@ export class WebhookEngine {
     // that row and skip the fetch — every first dispatch returned
     // { delivered: false, status: null, error: null } because of that re-query.
     if (isOutboxed) {
-      this.db.execute('DELETE FROM payment_webhook_outbox WHERE payment_id = ?', [session.id]);
+      this.db.execute('DELETE FROM payment_webhook_outbox WHERE payment_id = ? AND event_type = ?', [session.id, publicOutcome]);
     }
 
     let responseStatus = null;
@@ -505,7 +505,7 @@ export class WebhookEngine {
             nowIso,
             nowIso
           ]);
-          this.db.execute('DELETE FROM payment_webhook_outbox WHERE payment_id = ?', [sessionRow.id]);
+          this.db.execute('DELETE FROM payment_webhook_outbox WHERE payment_id = ? AND event_type = ?', [sessionRow.id, publicOutcome]);
           recoveredCount++;
           if (recoveredCount >= targetBatchLimit) break;
         }

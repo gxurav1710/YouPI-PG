@@ -127,6 +127,16 @@ describe('Control Center Supervisor Integration Tests', () => {
 });
 
 describe('ProcessManager child lifecycle', () => {
+  // Windows has no catchable SIGTERM: child.kill('SIGTERM') terminates the child at
+  // once, so the fixture's graceful handler never runs and exitCode stays null.
+  // Ordering invariants still hold there; only the exit-code/escalation checks differ.
+  const POSIX_SIGNALS = process.platform !== 'win32';
+  const hasExited = (child) => child.exitCode !== null || child.signalCode !== null;
+  function assertStopped(child) {
+    if (POSIX_SIGNALS) assert.equal(child.exitCode, 0);
+    else assert.ok(hasExited(child), 'the child must have exited');
+  }
+
   function fixture(t, shutdownBody, options = {}) {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'youpi-process-test-'));
     const script = path.join(directory, 'service.cjs');
@@ -167,7 +177,7 @@ describe('ProcessManager child lifecycle', () => {
     const stopping = pm.stopService('fixture');
     assert.ok(svc.child === child, 'the process must remain tracked while it is alive');
     await stopping;
-    assert.equal(child.exitCode, 0);
+    assertStopped(child);
     assert.equal(svc.child, null);
     assert.equal(svc.status, 'STOPPED');
     assert.equal(svc.pid, null);
@@ -182,7 +192,7 @@ describe('ProcessManager child lifecycle', () => {
     const replacement = svc.child;
     children.push(replacement);
     await once(replacement, 'message');
-    const originalExitedBeforeReplacement = original.exitCode !== null;
+    const originalExitedBeforeReplacement = hasExited(original);
     await originalExit;
 
     assert.equal(originalExitedBeforeReplacement, true, 'replacement must start after the original exits');
@@ -204,13 +214,15 @@ describe('ProcessManager child lifecycle', () => {
     children.push(replacement);
     await once(replacement, 'message');
 
-    assert.equal(original.exitCode, 0);
+    assertStopped(original);
     assert.notEqual(replacement.pid, original.pid);
     assert.equal(svc.child, replacement);
     assert.equal(svc.status, 'RUNNING');
   });
 
-  test('a child ignoring SIGTERM is killed after the graceful shutdown deadline', async (t) => {
+  test('a child ignoring SIGTERM is killed after the graceful shutdown deadline', {
+    skip: !POSIX_SIGNALS && 'SIGTERM cannot be ignored on Windows, so there is no deadline to escalate from'
+  }, async (t) => {
     const { pm, start } = fixture(t, '', { stopTimeoutMs: 50 });
     const svc = await start();
     const original = svc.child;

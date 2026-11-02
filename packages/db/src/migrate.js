@@ -63,6 +63,11 @@ export function runMigrations(targetDb) {
   try { db.exec("ALTER TABLE payment_sessions ADD COLUMN verification_level INTEGER DEFAULT 0;"); } catch {}
   try { db.exec("ALTER TABLE payment_sessions ADD COLUMN verification_sources TEXT DEFAULT '[]';"); } catch {}
   try { db.exec("ALTER TABLE payment_sessions ADD COLUMN verification_tag TEXT DEFAULT 'UNVERIFIED';"); } catch {}
+  try { db.exec('ALTER TABLE payment_sessions ADD COLUMN customer_utr TEXT;'); } catch {}
+  try { db.exec('ALTER TABLE payment_sessions ADD COLUMN utr_submitted_at TEXT;'); } catch {}
+  try { db.exec('ALTER TABLE payment_sessions ADD COLUMN manual_reviewed_by TEXT;'); } catch {}
+  try { db.exec('ALTER TABLE payment_sessions ADD COLUMN manual_reviewed_at TEXT;'); } catch {}
+  try { db.exec('ALTER TABLE payment_sessions ADD COLUMN manual_review_reason TEXT;'); } catch {}
 
   // Phase 9C/9D: Preflight conflict check for existing databases prior to applying DDL / indexes
   try {
@@ -85,8 +90,35 @@ export function runMigrations(targetDb) {
     }
   }
 
+  // Older outboxes allowed only one legacy terminal event per payment. A UPI
+  // payment can emit OBSERVED_SUCCESS and then RECONCILED, so retain each event.
+  // Copy only already-pending rows: upgrading must not notify historic orders.
+  const outboxColumns = db.query("PRAGMA table_info(payment_webhook_outbox)");
+  if (outboxColumns.length && !outboxColumns.some(column => column.name === 'event_type' && column.pk)) {
+    db.transaction(() => {
+      db.exec('DROP TRIGGER IF EXISTS trg_terminal_payment_webhook_outbox;');
+      db.exec(`
+        CREATE TABLE payment_webhook_outbox_upgrade (
+          payment_id TEXT NOT NULL REFERENCES payment_sessions(id) ON DELETE CASCADE,
+          event_type TEXT NOT NULL CHECK(event_type IN ('SUCCESS','FAILED','EXPIRED','CANCELLED','OBSERVED_SUCCESS','MANUAL_REVIEW','RECONCILED')),
+          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+          PRIMARY KEY (payment_id, event_type)
+        );
+        INSERT INTO payment_webhook_outbox_upgrade (payment_id, event_type, created_at)
+          SELECT payment_id, event_type, created_at FROM payment_webhook_outbox;
+        DROP TABLE payment_webhook_outbox;
+        ALTER TABLE payment_webhook_outbox_upgrade RENAME TO payment_webhook_outbox;
+      `);
+      // Reinstall the new trigger in the same transaction as the table upgrade.
+      db.exec(schemaSql);
+    });
+  }
+
   // Execute schema DDL
   db.exec(schemaSql);
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_manual_upi_utr_per_receiving_account
+    ON payment_sessions (receiving_account_id, upper(customer_utr))
+    WHERE method = 'MANUAL_UPI' AND customer_utr IS NOT NULL;`);
 
   // Alter table columns if migrating existing databases
   try { db.exec("ALTER TABLE payment_sessions ADD COLUMN verification_level INTEGER DEFAULT 0;"); } catch {}

@@ -1,10 +1,17 @@
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { runMigrations } from '../packages/db/src/migrate.js';
 import { startControlCenter } from '../apps/control-center/src/index.js';
 import { startCloudflaredSafely } from '../packages/common/src/tunnel-command.js';
 
 if (!process.env.YOUPI_MODE) process.env.YOUPI_MODE = 'localhost';
 if (!process.env.NODE_ENV) process.env.NODE_ENV = 'development';
+
+// Load the shared configuration before migrations and service discovery. Set the
+// dev defaults first so .env cannot override them; explicit shell values still win.
+const rootEnv = fileURLToPath(new URL('../.env', import.meta.url));
+if (fs.existsSync(rootEnv)) process.loadEnvFile(rootEnv);
 
 console.log('====================================================');
 console.log('🚀 Starting YOUPI PG (Development / Localhost Mode)');
@@ -29,10 +36,10 @@ if (tunnelCmd && tunnelCmd.trim()) {
 }
 
 // 2. Start Control Center supervisor and launch all services
-console.log('[2/2] Launching Local Process Control Center on port 8090...');
-const cc = await startControlCenter(8090);
+console.log('[2/2] Launching Local Process Control Center...');
+const cc = await startControlCenter();
 
-console.log('\n[✓] Control Center is online at: http://localhost:8090');
+console.log(`\n[✓] Control Center is online at: http://localhost:${cc.port}`);
 console.log('[*] Starting all modular gateway services...\n');
 
 await cc.processManager.startAll();

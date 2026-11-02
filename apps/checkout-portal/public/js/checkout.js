@@ -11,11 +11,49 @@
     const STORAGE_KEY_ACTIVE = 'youpi.customer.activeId';
     const MAX_IDENTITY_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days (maximum 1 week)
 
+    // Client-side obfuscation layer for localStorage to prevent casual/cleartext inspection of customer tokens
+    function encryptClientStorage(plainText) {
+      if (!plainText) return '';
+      try {
+        let cipher = '';
+        for (let i = 0; i < plainText.length; i++) {
+          cipher += String.fromCharCode(plainText.charCodeAt(i) ^ 0x5a);
+        }
+        return btoa(cipher);
+      } catch {
+        return '';
+      }
+    }
+
+    function decryptClientStorage(cipherText) {
+      if (!cipherText) return null;
+      try {
+        const raw = atob(cipherText);
+        let plain = '';
+        for (let i = 0; i < raw.length; i++) {
+          plain += String.fromCharCode(raw.charCodeAt(i) ^ 0x5a);
+        }
+        try { return JSON.parse(plain); } catch { return plain; }
+      } catch {
+        try { return JSON.parse(cipherText); } catch { return cipherText; }
+      }
+    }
+
+    function getStoredCustomerToken() {
+      try {
+        const raw = localStorage.getItem('ypg_customer_token');
+        if (!raw) return null;
+        return decryptClientStorage(raw) || raw;
+      } catch {
+        return null;
+      }
+    }
+
     function getPreservedIdentity() {
       try {
         const raw = localStorage.getItem(STORAGE_KEY_IDENTITY);
         if (!raw) return null;
-        const data = JSON.parse(raw);
+        const data = decryptClientStorage(raw);
         if (!data || !data.customer) {
           clearPreservedIdentity();
           return null;
@@ -40,24 +78,25 @@
         const cleanCust = {
           id: cust.id,
           name: cust.name || cust.fullName || 'Customer',
-          email: cust.email || '',
-          mobileNumber: cust.mobileNumber || cust.phoneNumber || '',
           status: cust.status || 'ACTIVE'
         };
-        const resolvedToken = token || activeToken || localStorage.getItem('ypg_customer_token') || null;
+        const resolvedToken = token || activeToken || getStoredCustomerToken() || null;
         const payload = {
           customer: cleanCust,
           token: resolvedToken,
           savedAt: now,
           expiresAt: now + MAX_IDENTITY_AGE_MS
         };
-        // 1. Preserve 1-week identity
-        localStorage.setItem(STORAGE_KEY_IDENTITY, JSON.stringify(payload));
-        // 2. Strict single-user saved account store
-        localStorage.setItem(STORAGE_KEY_ACCOUNTS, JSON.stringify([cleanCust]));
+        // 1. Preserve 1-week identity (encrypted/obfuscated to avoid cleartext PII in localStorage)
+        const encIdentity = encryptClientStorage(JSON.stringify(payload));
+        if (encIdentity) localStorage.setItem(STORAGE_KEY_IDENTITY, encIdentity);
+        // 2. Strict single-user saved account store (encrypted/obfuscated)
+        const encAccounts = encryptClientStorage(JSON.stringify([cleanCust]));
+        if (encAccounts) localStorage.setItem(STORAGE_KEY_ACCOUNTS, encAccounts);
         localStorage.setItem(STORAGE_KEY_ACTIVE, cust.id);
         if (resolvedToken) {
-          localStorage.setItem('ypg_customer_token', resolvedToken);
+          const encToken = encryptClientStorage(resolvedToken);
+          if (encToken) localStorage.setItem('ypg_customer_token', encToken);
         }
       } catch { }
     }
@@ -186,10 +225,14 @@
       return null;
     }
 
-    /** Posts to the embedding storefront using its resolved origin when known. */
+    // Posts to the embedding storefront. The message carries payment data, so it
+    // is only ever sent to a known merchant origin: when the origin cannot be
+    // resolved the message is dropped rather than broadcast to every origin.
     function postToMerchant(message) {
+      const target = resolveMerchantOrigin();
+      if (!target) return;
       try {
-        window.parent.postMessage(message, resolveMerchantOrigin() || '*');
+        window.parent.postMessage(message, target);
       } catch (e) { }
     }
 
@@ -305,7 +348,7 @@
         }
         const raw = localStorage.getItem(STORAGE_KEY_ACCOUNTS);
         if (!raw) return [];
-        const parsed = JSON.parse(raw);
+        const parsed = decryptClientStorage(raw);
         if (!Array.isArray(parsed) || parsed.length === 0) return [];
         return [parsed[0]]; // Strictly single user only
       } catch {
@@ -1183,8 +1226,18 @@
       }
     }
 
+    function renderCodButton(btn, amount) {
+      if (!btn) return;
+      btn.disabled = false;
+      btn.textContent = '';
+      const span = document.createElement('span');
+      span.textContent = 'Confirm & Place COD Order (₹' + (amount || '0.00') + ')';
+      btn.appendChild(span);
+      btn.appendChild(document.createTextNode(' \u203A'));
+    }
+
     async function promptConfirmCodOrder() {
-      const amt = state?.amount || '' + (state?.amount || "0.00") + '';
+      const amt = state?.amount || '0.00';
       if (!confirm(`Are you sure you want to confirm and place this Cash on Delivery (COD) order for ₹${amt}? You will pay in cash upon doorstep delivery.`)) {
         return;
       }
@@ -1208,17 +1261,11 @@
           loadState();
         } else {
           alert(data.error || 'Failed to place COD order');
-          if (btn) {
-            btn.disabled = false;
-            btn.innerHTML = '<span>Confirm &amp; Place COD Order (₹' + (state?.amount || '' + (state?.amount || "0.00") + '') + ')</span> &rsaquo;';
-          }
+          renderCodButton(btn, state?.amount);
         }
       } catch (e) {
         alert('Network error confirming COD order.');
-        if (btn) {
-          btn.disabled = false;
-          btn.innerHTML = '<span>Confirm &amp; Place COD Order (₹' + (state?.amount || '' + (state?.amount || "0.00") + '') + ')</span> &rsaquo;';
-        }
+        renderCodButton(btn, state?.amount);
       }
     }
 
@@ -1402,7 +1449,7 @@
       if (typeof DeviceIdentity !== 'undefined' && DeviceIdentity?.currentDeviceToken) {
         headers['X-Device-Token'] = DeviceIdentity.currentDeviceToken;
       }
-      const token = activeToken || (getPreservedIdentity()?.token) || localStorage.getItem('ypg_customer_token');
+      const token = activeToken || (getPreservedIdentity()?.token) || getStoredCustomerToken();
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
         headers['x-customer-token'] = token;
@@ -2391,7 +2438,7 @@
           if (DeviceIdentity.currentDeviceId) headers['X-Device-Id'] = DeviceIdentity.currentDeviceId;
           if (DeviceIdentity.currentDeviceToken) headers['X-Device-Token'] = DeviceIdentity.currentDeviceToken;
         }
-        const token = activeToken || localStorage.getItem('ypg_customer_token');
+        const token = activeToken || getStoredCustomerToken();
         if (token) {
           headers['Authorization'] = `Bearer ${token}`;
           headers['x-customer-token'] = token;
@@ -2772,7 +2819,7 @@
     const bootPreserved = getPreservedIdentity();
     if (bootPreserved && bootPreserved.customer) {
       activeCustomer = bootPreserved.customer;
-      activeToken = bootPreserved.token || localStorage.getItem('ypg_customer_token') || null;
+      activeToken = bootPreserved.token || getStoredCustomerToken() || null;
       updateCustomerDisplay(activeCustomer);
     } else {
       activeCustomer = null;

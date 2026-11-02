@@ -149,7 +149,9 @@ describe('Phase 1 observed success and matching safety', () => {
         const url = new URL(pathname, baseUrl);
         const req = http.request(url, {
           method: options.method || 'GET',
-          headers: { 'Content-Type': 'application/json', ...authHeadersFor(pathname), ...(options.headers || {}) }
+          headers: { 'Content-Type': 'application/json', ...authHeadersFor(pathname),
+            ...(pathname.startsWith('/api/v1/payments') ? { 'X-Merchant-Id': '00000000-0000-0000-0000-000000000001' } : {}),
+            ...(options.headers || {}) }
         }, res => {
           let data = '';
           res.on('data', chunk => { data += chunk; });

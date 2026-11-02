@@ -121,6 +121,11 @@ CREATE TABLE IF NOT EXISTS payment_sessions (
     verification_level INT DEFAULT 0,
     verification_sources TEXT DEFAULT '[]',
     verification_tag VARCHAR(100) DEFAULT 'UNVERIFIED',
+    customer_utr TEXT,
+    utr_submitted_at TIMESTAMPTZ,
+    manual_reviewed_by TEXT,
+    manual_reviewed_at TIMESTAMPTZ,
+    manual_review_reason TEXT,
     metadata TEXT NOT NULL DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -139,6 +144,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_one_slot_per_receiving_account
 CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_sessions_attributed_obs
   ON payment_sessions (attributed_observation_id)
   WHERE attributed_observation_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_manual_upi_utr_per_receiving_account
+  ON payment_sessions (receiving_account_id, upper(customer_utr))
+  WHERE method = 'MANUAL_UPI' AND customer_utr IS NOT NULL;
 
 -- 5. Payment Observations Table
 CREATE TABLE IF NOT EXISTS payment_observations (
@@ -199,9 +207,10 @@ CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_retry ON webhook_deliveries (i
 -- Durable terminal-event outbox: populated in the same SQLite transaction as the status update.
 -- Only NEW terminal transitions are queued; migrations must never replay historic orders.
 CREATE TABLE IF NOT EXISTS payment_webhook_outbox (
-    payment_id TEXT PRIMARY KEY REFERENCES payment_sessions(id) ON DELETE CASCADE,
-    event_type TEXT NOT NULL CHECK(event_type IN ('SUCCESS','FAILED','EXPIRED','CANCELLED')),
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    payment_id TEXT NOT NULL REFERENCES payment_sessions(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL CHECK(event_type IN ('SUCCESS','FAILED','EXPIRED','CANCELLED','OBSERVED_SUCCESS','MANUAL_REVIEW','RECONCILED')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    PRIMARY KEY (payment_id, event_type)
 );
 
 CREATE INDEX IF NOT EXISTS idx_payment_webhook_outbox_created
@@ -209,8 +218,8 @@ CREATE INDEX IF NOT EXISTS idx_payment_webhook_outbox_created
 
 CREATE TRIGGER IF NOT EXISTS trg_terminal_payment_webhook_outbox
 AFTER UPDATE OF status ON payment_sessions
-WHEN NEW.status IN ('SUCCESS','FAILED','EXPIRED','CANCELLED')
- AND OLD.status NOT IN ('SUCCESS','FAILED','EXPIRED','CANCELLED')
+WHEN NEW.status IN ('SUCCESS','FAILED','EXPIRED','CANCELLED','OBSERVED_SUCCESS','MANUAL_REVIEW','RECONCILED')
+ AND OLD.status != NEW.status
 BEGIN
     INSERT OR IGNORE INTO payment_webhook_outbox (payment_id, event_type)
     VALUES (NEW.id, NEW.status);
@@ -306,5 +315,4 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_statement_lines_source
   ON bank_statement_lines (receiving_account_id, source_hash);
 CREATE INDEX IF NOT EXISTS idx_statement_lines_utr
   ON bank_statement_lines (receiving_account_id, utr);
-
 
