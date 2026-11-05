@@ -23,6 +23,8 @@
     "build:android:apk": "node scripts/build-android-apk.js",
     "build:firebase": "node scripts/build-firebase.js",
     "deploy:firebase": "node scripts/build-firebase.js && firebase deploy --only hosting",
+    "link:workspaces": "node scripts/link-workspaces.js",
+    "start:render": "node scripts/start-render.js",
     "sync:android-allowlist": "node scripts/sync-android-allowlist.js",
     "typecheck": "tsc -b --noEmit"
   },
