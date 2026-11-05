@@ -1,11 +1,11 @@
 
 services:
   - type: web
-    name: youpi-pg-demo
+    name: youpi-pg
     runtime: node
     plan: free
     buildCommand: npm ci
-    startCommand: node scripts/start-render-demo.js
+    startCommand: node scripts/start-render.js
     healthCheckPath: /health
 
     envVars:
@@ -15,17 +15,32 @@ services:
       - key: NODE_ENV
         value: production
 
+      - key: YOUPI_MODE
+        value: production
+
       - key: YOUPI_BIND_HOST
         value: 0.0.0.0
 
       - key: USE_SQLITE_FALLBACK
         value: "true"
 
+      - key: SQLITE_DB_PATH
+        value: ./data/youpi_pg.sqlite
+
       - key: ENCRYPTION_MASTER_KEY
         generateValue: true
 
       - key: JWT_SECRET
         generateValue: true
+
+      - key: YOUPI_ALLOWED_ORIGINS
+        value: "*"
+
+      - key: YOUPI_ALLOWED_RETURN_ORIGINS
+        value: "*"
+
+      - key: CHECKOUT_FRAME_ANCESTORS
+        value: "https://saca-a3ae1.web.app"
 
       - key: YOUPI_ALLOW_DEV_TOOLS
         value: "false"
