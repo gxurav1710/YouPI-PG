@@ -42,7 +42,15 @@ const { createPaymentApp } = await import('../apps/payment-api/src/index.js');
 const { CheckoutServer } = await import('../apps/checkout-portal/src/server.js');
 const { AdminServer } = await import('../apps/merchant-admin/src/server.js');
 const { CoinWalletStoreServer } = await import('../apps/coin-wallet-store/src/server.js');
+const { startControlCenter } = await import('../apps/control-center/src/index.js');
 const { getAdminToken } = await import('../packages/common/src/secrets.js');
+
+try {
+  await startControlCenter(8090);
+  console.log('[✓] Control Center process supervisor started on port 8090');
+} catch (e) {
+  console.warn('[Control Center] Supervisor note:', e.message);
+}
 
 const paymentApp = createPaymentApp(db);
 
