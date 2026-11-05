@@ -711,8 +711,19 @@ export function registerPollerRoutes(server, ctx) {
     const merchantId = merchant ? merchant.id : (req.query.merchantId || '00000000-0000-0000-0000-000000000001');
 
     // Canonical runtime URL derivation (Part C2)
-    const runtime = resolveRuntimeUrls(merchant?.branding || {});
-    const baseUrl = runtime.apiUrl;
+    let baseUrl;
+    try {
+      const runtime = resolveRuntimeUrls(merchant?.branding || {});
+      baseUrl = runtime.apiUrl;
+    } catch {}
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
+    const proto = req.headers['x-forwarded-proto'] || 'https';
+    if (!baseUrl || baseUrl.includes('localhost') && host && !host.includes('localhost')) {
+      baseUrl = `${proto}://${host}`;
+    }
+    if (!baseUrl) {
+      baseUrl = process.env.RENDER_EXTERNAL_URL || (host ? `${proto}://${host}` : 'http://localhost:6100');
+    }
     const token = enrollmentSecret;
     const sessionId = crypto.randomUUID();
     const expiresAt = Date.now() + (10 * 60 * 1000); // 10 minutes
