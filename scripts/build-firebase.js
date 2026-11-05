@@ -288,35 +288,35 @@ function generatePortalIndexHtml() {
 <body>
   <div class="badge">
     <span class="badge-dot"></span>
-    Firebase Cloud Deployment Active
+    Live Cloud Engine Connected &bull; https://youpi-pg-cdnt.onrender.com
   </div>
 
   <h1>YOUPI PG V2</h1>
   <p class="lead">Sovereign, self-hosted, 0% platform fee UPI payment gateway suite with cryptographic banking observation and single-slot FIFO queue architecture.</p>
 
   <div class="grid">
-    <a href="/store/" class="card">
+    <a href="https://youpi-pg-cdnt.onrender.com/store" target="_blank" class="card">
       <span class="card-icon">🛒</span>
       <div class="card-title">Coin Wallet Store Demo</div>
       <div class="card-desc">Experience the full customer purchase journey, universal one-button payment modal, and real-time payment states.</div>
-      <div class="card-action">Launch Storefront &rarr;</div>
+      <div class="card-action">Launch Live Store &rarr;</div>
     </a>
 
-    <a href="/checkout/" class="card">
+    <a href="https://youpi-pg-cdnt.onrender.com/checkout/" target="_blank" class="card">
       <span class="card-icon">⚡</span>
       <div class="card-title">Dynamic Checkout Portal</div>
       <div class="card-desc">Zero-JS dynamic ISO vector UPI QR code generation, WhatsApp OTP verification modal, and dual decoupled timers.</div>
-      <div class="card-action">Open Checkout &rarr;</div>
+      <div class="card-action">Open Live Checkout &rarr;</div>
     </a>
 
-    <a href="/admin/" class="card">
+    <a href="https://youpi-pg-cdnt.onrender.com/admin" target="_blank" class="card">
       <span class="card-icon">🛡️</span>
       <div class="card-title">Merchant Admin Hub</div>
-      <div class="card-desc">Live VPA slot status, cashier till dock, white-label customizer, observer telemetry, and manual transaction review.</div>
-      <div class="card-action">Open Admin &rarr;</div>
+      <div class="card-desc">Live VPA slot status, cashier till dock, white-label customizer, observer telemetry, and manual transaction review. (Token: <code>admin123456</code>)</div>
+      <div class="card-action">Open Live Admin &rarr;</div>
     </a>
 
-    <a href="/openapi.yaml" target="_blank" class="card">
+    <a href="https://youpi-pg-cdnt.onrender.com/openapi.yaml" target="_blank" class="card">
       <span class="card-icon">⚙️</span>
       <div class="card-title">OpenAPI V3 Specification</div>
       <div class="card-desc">Inspect standard REST endpoints, signed HMAC-SHA256 webhook contracts, observer schemas, and status polling specs.</div>
