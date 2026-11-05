@@ -74,3 +74,4 @@ In your [`firebase.json`](../firebase.json), you can route `/api/**` directly to
 2. Install it on the Android phone with the SIM card receiving your bank credit SMS.
 3. Open the app, scan the pairing QR code from your Render Admin Dashboard (`https://<YOUR_RENDER_URL>/admin`), or enter your backend URL.
 4. The phone will now automatically verify bank SMS credits and mark payments as `SUCCESS` in real-time!
+

@@ -34,6 +34,7 @@ const { createPaymentApp } = await import('../apps/payment-api/src/index.js');
 const { CheckoutServer } = await import('../apps/checkout-portal/src/server.js');
 const { AdminServer } = await import('../apps/merchant-admin/src/server.js');
 const { CoinWalletStoreServer } = await import('../apps/coin-wallet-store/src/server.js');
+const { getAdminToken } = await import('../packages/common/src/secrets.js');
 
 const paymentApp = createPaymentApp(db);
 
@@ -99,6 +100,8 @@ server.listen(PORT, HOST, () => {
   console.log(`👉 API:      http://${HOST}:${PORT}/api/v1/...`);
   console.log(`👉 Checkout: http://${HOST}:${PORT}/checkout/...`);
   console.log(`👉 Admin:    http://${HOST}:${PORT}/admin`);
+  console.log(`🔑 Admin Token: ${getAdminToken()}`);
   console.log(`👉 Store:    http://${HOST}:${PORT}/store`);
   console.log(`====================================================\n`);
 });
+
