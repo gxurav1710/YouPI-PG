@@ -1,0 +1,54 @@
+{
+  "hosting": {
+    "public": "dist/firebase-public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**",
+      "**/*.apk",
+      "**/*.exe"
+    ],
+    "headers": [
+      {
+        "source": "/**",
+        "headers": [
+          { "key": "X-Content-Type-Options", "value": "nosniff" },
+          { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+        ]
+      },
+      {
+        "source": "/youpi*.js",
+        "headers": [
+          { "key": "Access-Control-Allow-Origin", "value": "*" },
+          { "key": "Cache-Control", "value": "public, max-age=3600" }
+        ]
+      },
+      {
+        "source": "/checkout/**",
+        "headers": [
+          { "key": "X-Frame-Options", "value": "ALLOWALL" },
+          { "key": "Content-Security-Policy", "value": "frame-ancestors *;" }
+        ]
+      }
+    ],
+    "rewrites": [
+      {
+        "source": "/checkout/**",
+        "destination": "/checkout/index.html"
+      },
+      {
+        "source": "/store/**",
+        "destination": "/store/index.html"
+      },
+      {
+        "source": "/admin/**",
+        "destination": "/admin/index.html"
+      },
+      {
+        "source": "/wallet/**",
+        "destination": "/wallet/index.html"
+      }
+    ]
+  }
+}
+
