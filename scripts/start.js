@@ -19,6 +19,17 @@ try {
   }
 } catch {}
 
+// On Render or single-port cloud environments without a Cloudflare domain,
+// delegate directly to the unified multi-app cloud runner (scripts/start-render.js).
+if ((process.env.RENDER === 'true' || process.env.RENDER || process.env.IS_RENDER) && !process.env.CLOUDFLARE_DOMAIN) {
+  console.log('\n====================================================');
+  console.log('☁️ Render Cloud Environment Detected');
+  console.log('🚀 Delegating to Unified Cloud Gateway (start-render.js)...');
+  console.log('====================================================');
+  await import('./start-render.js');
+  await new Promise(() => {});
+}
+
 // Authoritative runtime mode enforcement (start.js takes absolute precedence).
 //
 // Production is the default and the ONLY mode that requires a Cloudflare domain: nothing

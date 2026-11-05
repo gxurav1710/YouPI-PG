@@ -79,13 +79,13 @@ COPY --from=builder --chown=youpi:youpi /app ./
 RUN mkdir -p /app/data && chown -R youpi:youpi /app/data
 VOLUME ["/app/data"]
 
-# Expose all 7 services
-EXPOSE 5000 6001 6002 6003 6100 7000 8090
+# Expose unified gateway port
+EXPOSE 10000 6100 7000
 
 USER youpi
 
-# Native healthcheck pinging core payment api
+# Native healthcheck pinging unified cloud gateway
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:6100/health || exit 1
+  CMD wget -qO- http://127.0.0.1:10000/health || exit 1
 
-CMD ["node", "scripts/start.js"]
+CMD ["node", "scripts/start-render.js"]
