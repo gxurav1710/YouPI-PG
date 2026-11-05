@@ -90,20 +90,30 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 1. Merchant Admin Hub & Control Center Supervisor endpoints
+  // 1. Merchant Admin Hub & Fonts & Control Center Supervisor endpoints
   if (
     pathname === '/admin' ||
     pathname.startsWith('/admin/') ||
     pathname.startsWith('/api/services') ||
     pathname.startsWith('/api/admin/tickets') ||
     pathname === '/api/logs/stream' ||
+    pathname.startsWith('/fonts/') ||
     pathname === '/youpi-sms-gateway.apk'
   ) {
     return adminServer.emit('request', req, res);
   }
 
-  // 2. Demo Showcase Store & Customer Wallet
-  if (pathname === '/store' || pathname.startsWith('/store/') || pathname === '/wallet' || pathname.startsWith('/wallet/')) {
+  // 2. Demo Showcase Store, Customer Wallet, Outcome Pages & Store Assets
+  if (
+    pathname === '/store' ||
+    pathname.startsWith('/store/') ||
+    pathname === '/wallet' ||
+    pathname.startsWith('/wallet/') ||
+    pathname.startsWith('/assets/') ||
+    pathname === '/css/store.css' ||
+    pathname === '/js/store.js' ||
+    pathname.startsWith('/order-')
+  ) {
     return storeServer.emit('request', req, res);
   }
 
