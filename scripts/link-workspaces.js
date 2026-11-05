@@ -38,3 +38,4 @@ for (const name of fs.readdirSync(appsDir)) {
   }
 }
 console.log('Workspaces linking complete.');
+

@@ -7,6 +7,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 
+// Ensure .env is loaded reliably first
+try {
+  const rootEnv = path.resolve(rootDir, '.env');
+  if (fs.existsSync(rootEnv) && typeof process.loadEnvFile === 'function') {
+    process.loadEnvFile(rootEnv);
+  }
+} catch {}
+
 const PORT = Number(process.env.PORT || 10000);
 const HOST = process.env.YOUPI_BIND_HOST || '0.0.0.0';
 
@@ -74,19 +82,26 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 1. Payment Core REST API
-  if (pathname.startsWith('/api/')) {
-    return paymentApp.rawServer.emit('request', req, res);
-  }
-
-  // 2. Merchant Admin Hub
-  if (pathname === '/admin' || pathname.startsWith('/admin/')) {
+  // 1. Merchant Admin Hub & Control Center Supervisor endpoints
+  if (
+    pathname === '/admin' ||
+    pathname.startsWith('/admin/') ||
+    pathname.startsWith('/api/services') ||
+    pathname.startsWith('/api/admin/tickets') ||
+    pathname === '/api/logs/stream' ||
+    pathname === '/youpi-sms-gateway.apk'
+  ) {
     return adminServer.emit('request', req, res);
   }
 
-  // 3. Demo Showcase Store & Customer Wallet
+  // 2. Demo Showcase Store & Customer Wallet
   if (pathname === '/store' || pathname.startsWith('/store/') || pathname === '/wallet' || pathname.startsWith('/wallet/')) {
     return storeServer.emit('request', req, res);
+  }
+
+  // 3. Payment Core REST API (/api/v1/...)
+  if (pathname.startsWith('/api/')) {
+    return paymentApp.rawServer.emit('request', req, res);
   }
 
   // 4. Default: Checkout Portal & Universal youpi.js SDK
