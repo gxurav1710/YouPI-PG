@@ -3389,12 +3389,27 @@
               <img id="waQrImg" src="" alt="WhatsApp Pairing QR" style="width:240px; height:240px; display:none; image-rendering:pixelated;" onerror="this.style.display='none'; if(document.getElementById('waQrPlaceholder')){ document.getElementById('waQrPlaceholder').style.display='flex'; document.getElementById('waQrPlaceholder').innerText='QR preview unavailable. Click Refresh QR.'; }" />
             </div>
 
-            <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+            <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:1rem;">
               <button class="btn btn-primary" id="btnWaConnect" onclick="reconnectWhatsApp()">⚡ Connect / Refresh
                 QR</button>
               <button class="btn btn-danger" id="btnWaDisconnect" onclick="disconnectWhatsApp()"
                 style="display:none;">🔌 Disconnect</button>
               <button class="btn btn-secondary" onclick="fetchWhatsAppStatus(true)">🔄 Check Status</button>
+            </div>
+
+            <!-- Alternative: Link with 8-Digit Pairing Code (Phone Number) -->
+            <div style="border-top: 1px dashed var(--border); padding-top: 0.85rem; margin-top: 0.5rem;">
+              <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-heading); margin-bottom: 0.4rem;">
+                🔑 Or Link with Phone Number (No Camera Needed)
+              </div>
+              <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+                <input type="tel" id="waPairingPhoneInput" placeholder="+91 9876543210" style="flex: 1; padding: 0.4rem 0.6rem; font-size: 0.85rem; border-radius: 0.375rem; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-main);" />
+                <button type="button" class="btn btn-secondary" id="btnGetWaPairCode" onclick="requestWaPairingCode()" style="white-space: nowrap; font-size: 0.8rem;">Get 8-Digit Code</button>
+              </div>
+              <div id="waPairingCodeDisplayBox" style="display: none; background: rgba(16, 185, 129, 0.1); border: 1px solid var(--success); border-radius: 0.5rem; padding: 0.75rem; text-align: center; margin-top: 0.5rem;">
+                <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.25rem;">Enter this code on your phone in WhatsApp &gt; Linked Devices &gt; Link with phone number:</div>
+                <div id="waPairingCodeValue" style="font-size: 1.4rem; font-weight: 800; letter-spacing: 4px; color: var(--success); font-family: monospace;">---- ----</div>
+              </div>
             </div>
           </div>
         </div>
@@ -6261,6 +6276,43 @@
         await fetchWhatsAppStatus();
         showAdminToast('WhatsApp session disconnected.');
       } catch (e) { }
+    }
+
+    async function requestWaPairingCode() {
+      const phoneInput = document.getElementById('waPairingPhoneInput');
+      const phone = phoneInput ? phoneInput.value.trim() : '';
+      if (!phone) {
+        alert('Please enter your WhatsApp phone number with country code (e.g. +91 9876543210)');
+        return;
+      }
+      const btn = document.getElementById('btnGetWaPairCode');
+      const oldText = btn ? btn.innerText : '';
+      if (btn) { btn.disabled = true; btn.innerText = '⏳ Requesting...'; }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/admin/whatsapp/pairing-code`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phoneNumber: phone })
+        });
+        const d = await res.json();
+        if (d.success && d.pairingCode) {
+          const box = document.getElementById('waPairingCodeDisplayBox');
+          const valEl = document.getElementById('waPairingCodeValue');
+          if (box && valEl) {
+            box.style.display = 'block';
+            const c = String(d.pairingCode);
+            valEl.innerText = c.length === 8 ? `${c.slice(0, 4)} - ${c.slice(4)}` : c;
+          }
+          showAdminToast('8-digit pairing code generated! Check your phone notification.');
+        } else {
+          alert('Error requesting pairing code: ' + (d.error || 'Check server logs'));
+        }
+      } catch (err) {
+        alert('Failed to request pairing code: ' + err.message);
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerText = oldText; }
+      }
     }
 
     // --- FLOATING CASHIER MODALS DOCK ---
