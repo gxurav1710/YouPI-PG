@@ -8,10 +8,25 @@ const BASE_SECURITY_HEADERS = Object.freeze({
   'X-Frame-Options': 'SAMEORIGIN'
 });
 
-function configuredOrigins() {
-  return new Set(String(process.env.YOUPI_ALLOWED_ORIGINS || '').split(/[\s,]+/).map(value => {
+function isOriginAllowed(origin, req) {
+  if (!origin) return true;
+  const rawAllowed = String(process.env.YOUPI_ALLOWED_ORIGINS || '').trim();
+  if (rawAllowed === '*' || rawAllowed.includes('*')) return true;
+
+  // Same-origin check: allow requests coming from the server's own domain/host
+  const host = req?.headers?.host;
+  if (host) {
+    try {
+      const originHost = new URL(origin).host;
+      if (originHost.toLowerCase() === host.toLowerCase()) return true;
+    } catch {}
+  }
+
+  const origins = new Set(rawAllowed.split(/[\s,]+/).map(value => {
     try { return new URL(value).origin; } catch { return ''; }
   }).filter(Boolean));
+
+  return origins.has(origin);
 }
 
 const requestWindows = new Map();
@@ -206,15 +221,14 @@ export class HttpServer {
   createServer() {
     return http.createServer(async (req, res) => {
       const origin = req.headers.origin;
-      const origins = configuredOrigins();
-      if (origin && !origins.has(origin)) {
+      if (origin && !isOriginAllowed(origin, req)) {
         HttpServer.json(res, 403, { error: 'Origin is not allowed.' });
         return;
       }
       if (origin) res.corsOrigin = origin;
       // Handle CORS preflight
       if (req.method === 'OPTIONS') {
-        if (!origin || !res.corsOrigin) {
+        if (!origin || !isOriginAllowed(origin, req)) {
           HttpServer.json(res, 403, { error: 'Origin is not allowed.' });
           return;
         }
