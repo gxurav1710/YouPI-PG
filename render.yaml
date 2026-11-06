@@ -40,7 +40,7 @@ services:
         value: "*"
 
       - key: CHECKOUT_FRAME_ANCESTORS
-        value: "https://saca-a3ae1.web.app"
+        value: "*"
 
       - key: YOUPI_ALLOW_DEV_TOOLS
         value: "false"

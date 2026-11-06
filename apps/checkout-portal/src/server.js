@@ -27,9 +27,15 @@ const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'
  * is not a plain http(s) origin is ignored, so the CSP cannot be widened by accident.
  */
 export function frameAncestorOrigins(raw = process.env.CHECKOUT_FRAME_ANCESTORS) {
+  if (raw === '*' || String(raw).trim() === '*') {
+    return ['*'];
+  }
   const origins = [];
   for (const entry of String(raw || '').split(/[\s,]+/)) {
     if (!entry) continue;
+    if (entry === '*') {
+      return ['*'];
+    }
     try {
       const url = new URL(entry);
       if ((url.protocol === 'https:' || url.protocol === 'http:') && entry.replace(/\/$/, '') === url.origin) {
@@ -60,9 +66,11 @@ export function isProductionLike(env = process.env) {
  */
 export function checkoutFrameHeaders(env = process.env) {
   const configured = frameAncestorOrigins(env.CHECKOUT_FRAME_ANCESTORS);
-  const frameAncestors = configured.length
-    ? `'self' ${configured.join(' ')}`
-    : (isProductionLike(env) ? "'self'" : '*');
+  const frameAncestors = configured.includes('*')
+    ? '*'
+    : (configured.length
+        ? `'self' ${configured.join(' ')}`
+        : (isProductionLike(env) ? "'self'" : '*'));
   return {
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'strict-origin-when-cross-origin',

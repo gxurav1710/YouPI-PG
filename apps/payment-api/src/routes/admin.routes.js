@@ -1095,10 +1095,15 @@ export function registerAdminRoutes(server, ctx) {
     if (body.webhookUrl !== undefined) {
       const check = validateOutboundWebhookUrl(body.webhookUrl);
       if (!check.valid && String(body.webhookUrl || '').trim()) {
-        HttpServer.json(res, 400, { error: check.error });
-        return;
+        if (body.webhookUrl === 'http://localhost:5000/api/webhook') {
+          updates.webhookUrl = null;
+        } else {
+          HttpServer.json(res, 400, { error: check.error });
+          return;
+        }
+      } else {
+        updates.webhookUrl = body.webhookUrl?.trim() || null;
       }
-      updates.webhookUrl = body.webhookUrl?.trim() || null;
     } else if (inputBranding.webhookUrl !== undefined) updates.webhookUrl = inputBranding.webhookUrl?.trim() || null;
     if (body.webhookSecret !== undefined && body.webhookSecret.trim()) updates.webhookSecret = body.webhookSecret.trim();
 

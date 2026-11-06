@@ -188,7 +188,7 @@ export function runMigrations(targetDb) {
       slug,
       contactEmail,
       contactPhone,
-      webhookUrl: process.env.COIN_STORE_WEBHOOK_URL || 'http://localhost:5000/api/webhook',
+      webhookUrl: process.env.COIN_STORE_WEBHOOK_URL || (process.env.NODE_ENV === 'production' ? null : 'http://localhost:5000/api/webhook'),
       webhookSecret: getCoinStoreWebhookSecret(),
       branding: {
         appName: branding.appName,
@@ -202,7 +202,7 @@ export function runMigrations(targetDb) {
     defaultMerchant = existing[0];
     if (!defaultMerchant.webhookSecret) {
       merchantRepo.update(defaultMerchant.id, {
-        webhookUrl: 'http://localhost:5000/api/webhook',
+        webhookUrl: (process.env.NODE_ENV === 'production' ? null : 'http://localhost:5000/api/webhook'),
         webhookSecret: getCoinStoreWebhookSecret()
       });
     } else if (defaultMerchant.webhookSecret === LEGACY_DEFAULT_WEBHOOK_SECRET) {

@@ -5288,7 +5288,8 @@
       const sidebarNotice = document.getElementById('settingSidebarNotice')?.value.trim() || (currentMerchantBranding?.sidebarNotice || '');
       const footerGuarantee = document.getElementById('settingFooterGuarantee')?.value.trim() || (currentMerchantBranding?.footerGuarantee || '');
       const counterInstructions = document.getElementById('settingCounterInstructions')?.value.trim() || '';
-      const webhookUrl = document.getElementById('settingWebhookUrl')?.value.trim() || '';
+      const rawWebhook = document.getElementById('settingWebhookUrl')?.value.trim() || '';
+      const webhookUrl = (rawWebhook.includes('localhost') && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') ? '' : rawWebhook;
 
       const supportEmails = (document.getElementById('settingSupportEmails')?.value || '').split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
       const supportMobiles = (document.getElementById('settingSupportMobiles')?.value || '').split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
