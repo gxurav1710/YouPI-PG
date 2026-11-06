@@ -39,6 +39,18 @@ services:
       - key: YOUPI_ALLOWED_RETURN_ORIGINS
         value: "*"
 
+      - key: DEFAULT_PAYEE_VPA
+        value: "8432265669@slc"
+
+      - key: DEFAULT_MERCHANT_NAME
+        value: "Saca Committee"
+
+      - key: DEFAULT_SUPPORT_EMAIL
+        value: "sacatechnical@gmail.com"
+
+      - key: DEFAULT_SUPPORT_PHONE
+        value: "8432265669"
+
       - key: CHECKOUT_FRAME_ANCESTORS
         value: "*"
 

@@ -215,13 +215,19 @@ export function runMigrations(targetDb) {
   // Seed default UPI receiving account if none
   const accountRepo = new ReceivingAccountRepository(db);
   const accounts = accountRepo.findByMerchantId(defaultMerchant.id);
+  const defaultVpa = (process.env.DEFAULT_PAYEE_VPA || 'merchant@upi').trim();
   if (accounts.length === 0) {
     accountRepo.create({
       id: '00000000-0000-0000-0000-000000000002',
       merchantId: defaultMerchant.id,
-      upiId: 'merchant@upi',
+      upiId: defaultVpa,
       payeeName: defaultMerchant.businessName,
       isActive: true
+    });
+  } else if (process.env.DEFAULT_PAYEE_VPA && accounts.length === 1 && accounts[0].upiId === 'merchant@upi') {
+    accountRepo.update(accounts[0].id, {
+      upiId: defaultVpa,
+      payeeName: defaultMerchant.businessName
     });
   }
 
