@@ -27,15 +27,9 @@ const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'
  * is not a plain http(s) origin is ignored, so the CSP cannot be widened by accident.
  */
 export function frameAncestorOrigins(raw = process.env.CHECKOUT_FRAME_ANCESTORS) {
-  if (raw === '*' || String(raw).trim() === '*') {
-    return ['*'];
-  }
   const origins = [];
   for (const entry of String(raw || '').split(/[\s,]+/)) {
     if (!entry) continue;
-    if (entry === '*') {
-      return ['*'];
-    }
     try {
       const url = new URL(entry);
       if ((url.protocol === 'https:' || url.protocol === 'http:') && entry.replace(/\/$/, '') === url.origin) {
@@ -65,12 +59,16 @@ export function isProductionLike(env = process.env) {
  * effect because it cannot express a list and would block the allowlisted storefronts.
  */
 export function checkoutFrameHeaders(env = process.env) {
-  const configured = frameAncestorOrigins(env.CHECKOUT_FRAME_ANCESTORS);
-  const frameAncestors = configured.includes('*')
-    ? '*'
-    : (configured.length
-        ? `'self' ${configured.join(' ')}`
-        : (isProductionLike(env) ? "'self'" : '*'));
+  const raw = String(env.CHECKOUT_FRAME_ANCESTORS || '').trim().replace(/^["']|["']$/g, '');
+  if (raw === '*' || (!raw && !isProductionLike(env))) {
+    return {
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
+      'Content-Security-Policy': "default-src 'self' data: blob:; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors *; base-uri 'none'; form-action 'self'; object-src 'none'"
+    };
+  }
+  const configured = frameAncestorOrigins(raw);
+  const frameAncestors = configured.length ? `'self' ${configured.join(' ')}` : "'self'";
   return {
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'strict-origin-when-cross-origin',

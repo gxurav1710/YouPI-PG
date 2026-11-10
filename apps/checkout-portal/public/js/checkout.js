@@ -643,7 +643,7 @@
           goToAuthStep('otp');
           if (sendData && sendData.delivered === false) {
             updateWhatsAppUnconnectedNotice(true);
-            showOptionToast('WhatsApp not connected on gateway. Pay as Guest below.');
+            showOptionToast('WhatsApp not connected on gateway. Please verify number or try again.');
           } else {
             updateWhatsAppUnconnectedNotice(false);
             showOptionToast('OTP sent to your WhatsApp number!');
@@ -677,7 +677,7 @@
           goToAuthStep('otp');
           if (sendData && sendData.delivered === false) {
             updateWhatsAppUnconnectedNotice(true);
-            showOptionToast('WhatsApp not connected on gateway. Pay as Guest below.');
+            showOptionToast('WhatsApp not connected on gateway. Please verify number or try again.');
           } else {
             updateWhatsAppUnconnectedNotice(false);
             showOptionToast('OTP sent to your WhatsApp number!');
@@ -745,7 +745,7 @@
           goToAuthStep('otp');
           if (data && data.delivered === false) {
             updateWhatsAppUnconnectedNotice(true);
-            showOptionToast('WhatsApp not connected on gateway. Pay as Guest below.');
+            showOptionToast('WhatsApp not connected on gateway. Please verify number or try again.');
           } else {
             updateWhatsAppUnconnectedNotice(false);
             showOptionToast('WhatsApp verification code sent!');
@@ -844,7 +844,7 @@
           startOtpCooldown(30);
           if (data && data.delivered === false) {
             updateWhatsAppUnconnectedNotice(true);
-            showOptionToast('WhatsApp not connected on gateway. Pay as Guest below.');
+            showOptionToast('WhatsApp not connected on gateway. Please verify number or try again.');
           } else {
             updateWhatsAppUnconnectedNotice(false);
             showOptionToast('Fresh OTP dispatched to your WhatsApp number!');
@@ -932,7 +932,7 @@
         goToAuthStep('otp');
         if (data && data.delivered === false) {
           updateWhatsAppUnconnectedNotice(true);
-          showOptionToast('WhatsApp not connected on gateway. Pay as Guest below.');
+          showOptionToast('WhatsApp not connected on gateway. Please verify number or try again.');
         } else {
           updateWhatsAppUnconnectedNotice(false);
           showOptionToast('WhatsApp verification code sent!');
@@ -951,7 +951,7 @@
     function updateCustomerDisplay(cust) {
       const displayName = cust
         ? `${cust.fullName || cust.name || 'Customer'} (${cust.mobileNumber || cust.phoneNumber || cust.email || ''})`
-        : 'Guest User';
+        : 'Customer Account';
       const nameElMobile = document.getElementById('popoverCustomerName');
       if (nameElMobile) nameElMobile.textContent = displayName;
       const nameElPc = document.getElementById('popoverCustomerNamePc');
@@ -960,7 +960,7 @@
       const pcCustomerText = document.getElementById('pcCustomerProfileText');
       if (pcCustomerText) {
         if (!cust) {
-          pcCustomerText.textContent = 'Using as Guest User';
+          pcCustomerText.textContent = 'Enter Mobile Number';
           return;
         }
         const name = cust.fullName || cust.name || cust.customerName || '';
@@ -975,7 +975,7 @@
         } else if (cust.email) {
           pcCustomerText.textContent = `Using as ${cust.email}`;
         } else {
-          pcCustomerText.textContent = 'Using as Guest User';
+          pcCustomerText.textContent = 'Verified Customer';
         }
       }
     }
@@ -984,6 +984,11 @@
       if (e) {
         e.stopPropagation();
         e.preventDefault();
+      }
+      if (!activeCustomer && !activeToken) {
+        setGatewayAuthMode(true);
+        goToAuthStep('mobile');
+        return;
       }
       const isPc = window.innerWidth > 600 && !document.body.classList.contains('is-embedded-mobile');
       const popover = isPc
@@ -1749,10 +1754,10 @@
           } else if (c.email) {
             pcCustomerText.textContent = `Using as ${c.email}`;
           } else {
-            pcCustomerText.textContent = 'Using as Guest User';
+            pcCustomerText.textContent = 'Verified Customer';
           }
         } else {
-          pcCustomerText.textContent = 'Using as Guest User';
+          pcCustomerText.textContent = 'Enter Mobile Number';
         }
       }
       document.querySelectorAll('.cancelMerchantNameSpan').forEach(el => {
