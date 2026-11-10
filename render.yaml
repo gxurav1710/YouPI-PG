@@ -58,4 +58,4 @@ services:
         value: "false"
 
       - key: YOUPI_EXPOSE_DEV_OTP
-        value: "false"
+        value: "true"

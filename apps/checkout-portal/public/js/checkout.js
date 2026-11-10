@@ -463,6 +463,48 @@
       }
     }
 
+    function handleGuestCheckout() {
+      activeCustomer = {
+        id: 'guest_' + Math.random().toString(36).substring(2, 9),
+        name: 'Guest Customer',
+        isGuest: true
+      };
+      setGatewayAuthMode(false);
+      showOptionToast('Continuing as guest customer.');
+    }
+    window.handleGuestCheckout = handleGuestCheckout;
+
+    function updateWhatsAppUnconnectedNotice(show) {
+      const banner = document.getElementById('authOtpNoticeBanner');
+      if (banner) banner.style.display = show ? 'block' : 'none';
+    }
+    window.updateWhatsAppUnconnectedNotice = updateWhatsAppUnconnectedNotice;
+
+    function updateDevOtpUI(otp) {
+      const banner = document.getElementById('authDevOtpBanner');
+      const codeEl = document.getElementById('authDevOtpCode');
+      const otpInput = document.getElementById('authOtpInput');
+      if (banner && codeEl) {
+        codeEl.textContent = otp;
+        banner.style.display = 'block';
+      }
+      if (otpInput && !otpInput.value) {
+        otpInput.value = otp;
+      }
+    }
+    window.updateDevOtpUI = updateDevOtpUI;
+
+    function autoFillDevOtp() {
+      if (lastReceivedDevOtp) {
+        const otpInput = document.getElementById('authOtpInput');
+        if (otpInput) {
+          otpInput.value = lastReceivedDevOtp;
+          otpInput.focus();
+        }
+      }
+    }
+    window.autoFillDevOtp = autoFillDevOtp;
+
     function goToAuthStep(step) {
       currentAuthStep = step;
       const stepMobile = document.getElementById('authStepMobile');
@@ -599,7 +641,10 @@
             })
           });
           const sendData = await sendRes.json();
-          if (sendData && sendData.devOtp) lastReceivedDevOtp = sendData.devOtp;
+          if (sendData && sendData.devOtp) {
+            lastReceivedDevOtp = sendData.devOtp;
+            updateDevOtpUI(sendData.devOtp);
+          }
 
           const greetingEl = document.getElementById('authOtpGreeting');
           if (greetingEl) {
@@ -607,7 +652,13 @@
           }
 
           goToAuthStep('otp');
-          showOptionToast('OTP sent to your WhatsApp number!');
+          if (sendData && sendData.delivered === false) {
+            updateWhatsAppUnconnectedNotice(true);
+            showOptionToast('WhatsApp not connected on gateway. Pay as Guest below.');
+          } else {
+            updateWhatsAppUnconnectedNotice(false);
+            showOptionToast('OTP sent to your WhatsApp number!');
+          }
         } else if (savedMatch) {
           // Known customer in browser saved accounts -> dispatch OTP directly with saved profile
           currentAuthName = savedMatch.name || 'Customer';
@@ -624,7 +675,10 @@
             })
           });
           const sendData = await sendRes.json();
-          if (sendData && sendData.devOtp) lastReceivedDevOtp = sendData.devOtp;
+          if (sendData && sendData.devOtp) {
+            lastReceivedDevOtp = sendData.devOtp;
+            updateDevOtpUI(sendData.devOtp);
+          }
 
           const greetingEl = document.getElementById('authOtpGreeting');
           if (greetingEl) {
@@ -632,7 +686,13 @@
           }
 
           goToAuthStep('otp');
-          showOptionToast('OTP sent to your WhatsApp number!');
+          if (sendData && sendData.delivered === false) {
+            updateWhatsAppUnconnectedNotice(true);
+            showOptionToast('WhatsApp not connected on gateway. Pay as Guest below.');
+          } else {
+            updateWhatsAppUnconnectedNotice(false);
+            showOptionToast('OTP sent to your WhatsApp number!');
+          }
         } else {
           // New customer -> prompt for name and email
           goToAuthStep('signup');
@@ -683,7 +743,10 @@
           })
         });
         const data = await res.json();
-        if (data && data.devOtp) lastReceivedDevOtp = data.devOtp;
+        if (data && data.devOtp) {
+          lastReceivedDevOtp = data.devOtp;
+          updateDevOtpUI(data.devOtp);
+        }
 
         if (res.ok) {
           const greetingEl = document.getElementById('authOtpGreeting');
@@ -691,7 +754,13 @@
             greetingEl.innerHTML = `Hello <strong>${escapeHtml(name)}</strong>! Enter the 6-digit WhatsApp OTP:`;
           }
           goToAuthStep('otp');
-          showOptionToast('WhatsApp verification code sent!');
+          if (data && data.delivered === false) {
+            updateWhatsAppUnconnectedNotice(true);
+            showOptionToast('WhatsApp not connected on gateway. Pay as Guest below.');
+          } else {
+            updateWhatsAppUnconnectedNotice(false);
+            showOptionToast('WhatsApp verification code sent!');
+          }
         } else {
           showOptionToast(data.error || 'Failed to send WhatsApp OTP.');
         }
@@ -778,9 +847,19 @@
           })
         });
         const data = await res.json();
+        if (data && data.devOtp) {
+          lastReceivedDevOtp = data.devOtp;
+          updateDevOtpUI(data.devOtp);
+        }
         if (res.ok) {
           startOtpCooldown(30);
-          showOptionToast('Fresh OTP dispatched to your WhatsApp number!');
+          if (data && data.delivered === false) {
+            updateWhatsAppUnconnectedNotice(true);
+            showOptionToast('WhatsApp not connected on gateway. Pay as Guest below.');
+          } else {
+            updateWhatsAppUnconnectedNotice(false);
+            showOptionToast('Fresh OTP dispatched to your WhatsApp number!');
+          }
           const otpInput = document.getElementById('authOtpInput');
           if (otpInput) {
             otpInput.value = '';
@@ -844,7 +923,10 @@
           })
         });
         const data = await res.json();
-        if (data && data.devOtp) lastReceivedDevOtp = data.devOtp;
+        if (data && data.devOtp) {
+          lastReceivedDevOtp = data.devOtp;
+          updateDevOtpUI(data.devOtp);
+        }
 
         if (!res.ok) {
           showOptionToast(data.error || 'Failed to send WhatsApp OTP.');
@@ -859,7 +941,13 @@
         if (badge) badge.innerText = '+91 ' + clean;
 
         goToAuthStep('otp');
-        showOptionToast('WhatsApp verification code sent!');
+        if (data && data.delivered === false) {
+          updateWhatsAppUnconnectedNotice(true);
+          showOptionToast('WhatsApp not connected on gateway. Pay as Guest below.');
+        } else {
+          updateWhatsAppUnconnectedNotice(false);
+          showOptionToast('WhatsApp verification code sent!');
+        }
       } catch (err) {
         console.error('[Select Saved Account Error]:', err);
         showOptionToast('Network error sending WhatsApp OTP.');
