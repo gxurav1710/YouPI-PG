@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HttpServer } from '../server.js';
 import { ObservationNormalizer, BankSmsParser, BankEmailParser, generateQrSvg } from '@youpi/core';
-import { toRupeesString, toPaise, verifyHmac, resolveRuntimeUrls, resolveSecret, safeEqual, hasBearer, getObserverToken, isAllowedNotificationPackage } from '@youpi/common';
+import { toRupeesString, toPaise, verifyHmac, resolveRuntimeUrls, resolveSecret, safeEqual, hasBearer, getObserverToken, getAdminToken, isAllowedNotificationPackage } from '@youpi/common';
 import { isAdminRequest } from '../auth-guard.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -684,6 +684,147 @@ export function registerPollerRoutes(server, ctx) {
   // The notification-listener route must declare its package; the SMS-broadcast route has none.
   server.post('/api/v1/pollers/android/events', (req, res) => handleAndroidSmsEvents(req, res, { requirePackage: true }));
   server.post('/api/v1/observers/sms', (req, res) => handleAndroidSmsEvents(req, res, { requirePackage: false }));
+
+  // --- INBOUND BANK EMAIL OBSERVER HANDLER ---
+  const handleBankEmailEvents = async (req, res) => {
+    // 1. Authorization: either admin request, observer bearer token, or valid webhook secret
+    const webhookSecret = process.env.EMAIL_OBSERVER_SECRET || resolveSecret('email_observer_secret', 'EMAIL_OBSERVER_SECRET');
+    const providedSecret = req.headers['x-email-secret'] || req.headers['x-webhook-secret'] || (req.query && req.query.secret);
+    const isSecretAuthorized = Boolean(webhookSecret && providedSecret && safeEqual(webhookSecret, providedSecret));
+    const isTokenAuthorized = isAdminRequest(req) || hasBearer(req, getObserverToken(), getAdminToken());
+
+    if (!isTokenAuthorized && !isSecretAuthorized) {
+      HttpServer.json(res, 401, {
+        error: 'Unauthorized. Provide Bearer token or X-Email-Secret header.',
+        code: 'AUTH_REQUIRED'
+      });
+      return;
+    }
+
+    const body = await HttpServer.parseBody(req).catch(() => ({}));
+    const rawContent = (
+      body.body ||
+      body.rawEmail ||
+      body.text ||
+      body.rawText ||
+      body.html ||
+      body['stripped-text'] ||
+      body.message ||
+      ''
+    ).toString();
+    const subject = (body.subject || '').toString();
+    const fullText = `${subject}\n${rawContent}`.trim();
+
+    if (!fullText) {
+      HttpServer.json(res, 400, {
+        accepted: false,
+        error: 'Email subject or body content is required.',
+        code: 'MISSING_EMAIL_CONTENT'
+      });
+      return;
+    }
+
+    // 2. Resolve Sender
+    let sender = body.from || body.sender || req.headers['x-sender'] || '';
+    if (!sender && typeof body.envelope === 'object' && body.envelope?.from) {
+      sender = body.envelope.from;
+    }
+    if (!sender) {
+      const fromMatch = fullText.match(/^From:\s*([^\r\n]+)/im);
+      if (fromMatch) sender = fromMatch[1].trim();
+    }
+    if (!sender) {
+      sender = 'alerts@retail.bank.in';
+    }
+
+    // 3. Resolve Receiving Account (defaults to merchant's active VPA: 8432265669@slc)
+    let receivingAccountId = body.receivingAccountId;
+    if (!receivingAccountId) {
+      const defaultMerchantId = '00000000-0000-0000-0000-000000000001';
+      const activeAccount = ctx.accountRepo
+        ? ctx.accountRepo.findActiveForMerchant(defaultMerchantId)
+        : ctx.db.queryOne('SELECT id FROM payment_receiving_accounts WHERE is_active = 1 LIMIT 1');
+      receivingAccountId = activeAccount?.id || '00000000-0000-0000-0000-000000000002';
+    }
+
+    // 4. Parse Email using BankEmailParser
+    const parsedEmail = BankEmailParser.parse({
+      subject,
+      body: rawContent,
+      from: sender,
+      date: body.date || body.timestamp || new Date()
+    });
+
+    const bankRef = body.bankReferenceNumber || body.utr || parsedEmail?.bankReferenceNumber;
+    const observedAt = body.observedAt ? new Date(body.observedAt) : (parsedEmail?.observedAt || new Date());
+
+    if (!ctx.pipeline) {
+      HttpServer.json(res, 500, { error: 'Verification pipeline is not configured on this server.' });
+      return;
+    }
+
+    // 5. Run Verification Pipeline with source: 'GMAIL'
+    const pipeResult = ctx.pipeline.process({
+      source: 'GMAIL',
+      rawText: fullText,
+      sender,
+      receivingAccountId,
+      paymentSessionId: body.paymentSessionId,
+      bankReferenceNumber: bankRef,
+      receivedAt: observedAt,
+      isTest: Boolean(body.isTest) && isAdminRequest(req),
+      testModeActive: Boolean(body.testModeActive) && isAdminRequest(req)
+    });
+
+    if (pipeResult.status === 'VERIFIED') {
+      const attributedId = pipeResult.stages?.stage6?.details?.paymentSessionId || pipeResult.attribution?.paymentSessionId;
+      const obsId = pipeResult.messageId || pipeResult.stages?.stage6?.details?.observationId || pipeResult.attribution?.observationId;
+
+      if (attributedId && ctx.sessionRepo) {
+        try {
+          ctx.sessionRepo.recordVerificationSource(attributedId, 'GMAIL', obsId, { finalizeSuccess: true });
+        } catch (e) {
+          console.warn('[handleBankEmailEvents] recordVerificationSource note:', e.message);
+        }
+      }
+
+      HttpServer.json(res, 200, {
+        success: true,
+        accepted: true,
+        status: 'VERIFIED',
+        observationId: pipeResult.messageId || pipeResult.stages?.stage6?.details?.observationId,
+        attribution: pipeResult.stages?.stage6?.details || pipeResult,
+        pipeline: pipeResult,
+        message: 'Bank payment email verified and payment session confirmed successfully.'
+      });
+      return;
+    }
+
+    if (pipeResult.status === 'REJECTED') {
+      HttpServer.json(res, 400, {
+        success: false,
+        accepted: false,
+        status: 'REJECTED',
+        reason: pipeResult.failingCondition || 'VERIFICATION_REJECTED',
+        error: pipeResult.failingReason || 'Bank email could not be verified.',
+        pipeline: pipeResult
+      });
+      return;
+    }
+
+    HttpServer.json(res, 200, {
+      success: pipeResult.status === 'VERIFIED',
+      accepted: pipeResult.status !== 'REJECTED',
+      status: pipeResult.status || 'UNRESOLVED',
+      reason: pipeResult.failingCondition || 'UNRESOLVED_OBSERVATION',
+      error: pipeResult.failingReason,
+      pipeline: pipeResult
+    });
+  };
+
+  server.post('/api/v1/observers/email', handleBankEmailEvents);
+  server.post('/api/v1/webhook/email', handleBankEmailEvents);
+  server.post('/api/v1/email/inbound', handleBankEmailEvents);
 
   // --- ANDROID HEARTBEAT HANDLER ---
   const handleAndroidHeartbeat = async (req, res) => {

@@ -42,6 +42,7 @@ const { createPaymentApp } = await import('../apps/payment-api/src/index.js');
 const { CheckoutServer } = await import('../apps/checkout-portal/src/server.js');
 const { AdminServer } = await import('../apps/merchant-admin/src/server.js');
 const { CoinWalletStoreServer } = await import('../apps/coin-wallet-store/src/server.js');
+const { GmailObserverServer } = await import('../apps/gmail-observer/src/server.js');
 const { startControlCenter } = await import('../apps/control-center/src/index.js');
 const { getAdminToken } = await import('../packages/common/src/secrets.js');
 
@@ -60,6 +61,18 @@ const checkoutServer = checkout.createServer();
 
 const admin = new AdminServer({ apiBaseUrl: internalBaseUrl });
 const adminServer = admin.createServer();
+
+let gmailServer = null;
+let gmailPoller = null;
+try {
+  const gmail = new GmailObserverServer({ apiBaseUrl: internalBaseUrl });
+  gmailServer = gmail.createServer();
+  gmailPoller = gmail.poller;
+  await gmail.poller.startBootLifecycle();
+  console.log('[✓] Gmail observer and payment email engine initialized');
+} catch (e) {
+  console.warn('[Gmail Observer] Service note:', e.message);
+}
 
 const store = new CoinWalletStoreServer({
   gatewayApiUrl: internalBaseUrl,
@@ -101,6 +114,17 @@ const server = http.createServer((req, res) => {
     pathname === '/youpi-sms-gateway.apk'
   ) {
     return adminServer.emit('request', req, res);
+  }
+
+  // 1b. Gmail Direct Observer & OAuth endpoints
+  if (
+    gmailServer &&
+    (pathname === '/oauth/callback' ||
+      pathname === '/oauth/url' ||
+      pathname.startsWith('/gmail/') ||
+      pathname === '/api/v1/gmail/health')
+  ) {
+    return gmailServer.emit('request', req, res);
   }
 
   // 2. Demo Showcase Store, Customer Wallet, Outcome Pages & Store Assets

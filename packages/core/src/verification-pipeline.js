@@ -405,7 +405,16 @@ export class PaymentVerificationPipeline {
         'canarabank.com',
         'unionbankofindia.co.in',
         'federalbank.co.in',
-        'idbibank.com'
+        'idbibank.com',
+        'sliceit.com', 'sbmbank.co.in', 'nesfb.com',
+        'airtelbank.com', 'airtel.com',
+        'jiopaymentsbank.com', 'ippbonline.in',
+        'finobank.com', 'aubank.in',
+        'equitasbank.com', 'ujjivansfb.in',
+        'rblbank.com', 'bandhanbank.com',
+        'bankofindia.co.in', 'boi.co.in',
+        'centralbankofindia.co.in', 'indianbank.in',
+        'phonepe.com', 'google.com', 'razorpay.com', 'cred.club'
       ]);
       const isBankDomain =
         emailDomain.endsWith('.bank.in') ||

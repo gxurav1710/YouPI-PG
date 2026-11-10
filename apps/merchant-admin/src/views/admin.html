@@ -1536,6 +1536,43 @@
               ↗</button>
           </div>
         </div>
+
+        <!-- Inbound Bank Email & Instant Verification Card -->
+        <div class="card" style="margin-top: 1.5rem;">
+          <div class="card-header">
+            <div>
+              <div class="card-heading">✉️ Instant Bank Email Verification &amp; Inbound Webhook</div>
+              <div class="card-subtext">When your bank (Slice, SBI, HDFC, ICICI, etc.) sends payment credit confirmation via email instead of SMS, you can paste the email here to instantly verify the waiting payment, or forward bank emails to your inbound webhook endpoint.</div>
+            </div>
+            <span class="badge badge-success">ACTIVE &amp; READY</span>
+          </div>
+          
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1.25rem; margin-bottom:1rem;">
+            <div>
+              <label style="display:block; font-size:0.8rem; font-weight:700; margin-bottom:0.35rem;">Sender / Bank Email</label>
+              <input id="verifyEmailSender" type="text" placeholder="e.g. alerts@sliceit.com or alerts@hdfcbank.net" style="width:100%;" />
+            </div>
+            <div>
+              <label style="display:block; font-size:0.8rem; font-weight:700; margin-bottom:0.35rem;">Email Subject (Optional)</label>
+              <input id="verifyEmailSubject" type="text" placeholder="e.g. Money received in your Slice account" style="width:100%;" />
+            </div>
+          </div>
+
+          <div style="margin-bottom:1rem;">
+            <label style="display:block; font-size:0.8rem; font-weight:700; margin-bottom:0.35rem;">Bank Email Body / Raw Content</label>
+            <textarea id="verifyEmailBody" rows="4" placeholder="Paste the full bank email message text here... (e.g. 'You have received Rs. 10.00 in your account via UPI. UTR 431689234512 from rahul@okaxis')" style="width:100%; font-family:var(--font-mono, monospace); font-size:0.85rem;"></textarea>
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+            <div style="font-size:0.8rem; color:var(--text-muted);">
+              Inbound Webhook: <code>POST /api/v1/observers/email</code>
+            </div>
+            <button class="btn btn-primary" id="btnVerifyBankEmail" onclick="verifyBankEmailManually()">
+              <span>⚡</span> Verify Bank Email &amp; Confirm Payment
+            </button>
+          </div>
+          <div id="verifyEmailResultBox" style="display:none; margin-top:1rem; padding:0.85rem 1rem; border-radius:0.5rem; font-size:0.85rem;"></div>
+        </div>
       </div>
 
     </div>
@@ -6838,6 +6875,66 @@
         showAdminToast(`Error injecting test message: ${e.message}`, false);
       } finally {
         if (btn) btn.disabled = false;
+      }
+    }
+
+    async function verifyBankEmailManually() {
+      const sender = document.getElementById('verifyEmailSender')?.value.trim();
+      const subject = document.getElementById('verifyEmailSubject')?.value.trim();
+      const body = document.getElementById('verifyEmailBody')?.value.trim();
+      const resultBox = document.getElementById('verifyEmailResultBox');
+      const btn = document.getElementById('btnVerifyBankEmail');
+
+      if (!body && !subject) {
+        return alert('Please paste the bank email content.');
+      }
+
+      if (btn) { btn.disabled = true; btn.innerHTML = '<span>⏳</span> Verifying bank email with payment pipeline...'; }
+      if (resultBox) { resultBox.style.display = 'none'; }
+
+      try {
+        const token = (typeof getStoredAdminToken === 'function' ? getStoredAdminToken() : '') || 'admin123456';
+        const res = await fetch(`${API_BASE}/api/v1/observers/email`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            sender: sender || 'alerts@sliceit.com',
+            from: sender || 'alerts@sliceit.com',
+            subject: subject || 'Payment Credit Alert',
+            body: body
+          })
+        });
+
+        const data = await res.json();
+        if (resultBox) {
+          resultBox.style.display = 'block';
+          if (res.ok && data.status === 'VERIFIED') {
+            resultBox.style.background = 'rgba(16, 185, 129, 0.15)';
+            resultBox.style.border = '1px solid #10b981';
+            resultBox.style.color = '#10b981';
+            resultBox.innerHTML = `<strong>✅ Payment Verified &amp; Confirmed!</strong><br/>Order: <strong>#${data.attribution?.orderId || data.attribution?.paymentSessionId || 'Confirmed'}</strong> | UTR: <strong>${data.attribution?.bankReferenceNumber || data.pipeline?.parsed?.bankReferenceNumber || 'Verified'}</strong> | Amount: <strong>₹${data.attribution?.amount || data.pipeline?.parsed?.amount || '10.00'}</strong>`;
+            showAdminToast('Bank email verified! Payment confirmed successfully.');
+            if (typeof fetchLiveData === 'function') fetchLiveData();
+          } else {
+            resultBox.style.background = 'rgba(239, 68, 68, 0.15)';
+            resultBox.style.border = '1px solid #ef4444';
+            resultBox.style.color = '#ef4444';
+            resultBox.innerHTML = `<strong>⚠️ Verification Failed:</strong> ${data.error || data.reason || 'Could not attribute to an active checkout session'}`;
+          }
+        }
+      } catch (err) {
+        if (resultBox) {
+          resultBox.style.display = 'block';
+          resultBox.style.background = 'rgba(239, 68, 68, 0.15)';
+          resultBox.style.border = '1px solid #ef4444';
+          resultBox.style.color = '#ef4444';
+          resultBox.innerHTML = `<strong>❌ Network Error:</strong> ${err.message}`;
+        }
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<span>⚡</span> Verify Bank Email &amp; Confirm Payment'; }
       }
     }
 
