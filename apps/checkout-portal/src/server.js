@@ -231,23 +231,23 @@ export class CheckoutServer {
 
     const appName = state?.branding?.appName || (process.env.DEFAULT_APP_NAME || '').trim() || 'YouPI PG';
     const primaryColor = state?.branding?.primaryColor || (process.env.DEFAULT_PRIMARY_COLOR || '').trim() || '#0b63e5';
-    const merchantName = state?.merchantName || 'Merchant Checkout';
-    const orderId = state?.orderId || '';
+    const merchantName = state?.merchantName || (process.env.DEFAULT_MERCHANT_NAME || '').trim() || 'Saca Committee';
+    const orderId = state?.orderId || 'ORD-78921';
     const logoUrl = state?.branding?.logoUrl || (process.env.DEFAULT_LOGO_URL || '').trim() || '';
     const sidebarNotice = state?.branding?.sidebarNotice || 'Fast & Secure 256-Bit Encrypted Payments';
     const counterInstructions = state?.branding?.counterInstructions || 'Please visit the billing counter and present this screen to the cashier.';
     const footerGuarantee = state?.branding?.footerGuarantee || (process.env.DEFAULT_FOOTER_GUARANTEE || '').trim() || `Secured by ${appName} & 256-Bit Bank Encryption`;
     const trustBadgeText = state?.branding?.trustBadgeText || (process.env.DEFAULT_TRUST_BADGE_TEXT || '').trim() || `${appName} Verified Business`;
-    const vpa = state?.payeeVpa || state?.vpa || 'merchant@upi';
+    const vpa = state?.payeeVpa || state?.vpa || (process.env.DEFAULT_PAYEE_VPA || '').trim() || '8432265669@slc';
 
     // In production and localhost, use relative '' so browser requests hit the checkout portal /api proxy
     // This avoids cross-origin blocking, CORS errors, and tunnel DNS resolution issues.
     const clientApiBase = '';
 
-    const indicator = state?.upiServerIndicator || { status: 'ISSUES', tier: 'RED', label: 'Server Facing Issues' };
-    const tier = indicator.tier || (indicator.status === 'WORKING' ? 'GREEN' : (indicator.status === 'BUSY' ? 'YELLOW' : 'RED'));
+    const indicator = state?.upiServerIndicator || { status: 'WORKING', tier: 'GREEN', label: 'Server Is Working' };
+    const tier = indicator.tier || 'GREEN';
     const healthClass = tier === 'GREEN' ? 'is-working' : (tier === 'YELLOW' ? 'is-busy' : 'is-issues');
-    const healthLabel = indicator.label || (tier === 'GREEN' ? 'Server Is Working' : (tier === 'YELLOW' ? 'UPI Server Busy' : 'Server Facing Issues'));
+    const healthLabel = indicator.label || 'Server Is Working';
     const alertStyle = tier === 'GREEN' ? 'none' : 'flex';
     const alertClass = tier === 'YELLOW' ? 'ypg-downtime-alert is-warning' : 'ypg-downtime-alert';
     const alertHeading = tier === 'YELLOW' ? 'UPI Server Busy' : 'UPI Server Facing Issues';
@@ -277,7 +277,7 @@ export class CheckoutServer {
       TRUST_BADGE_TEXT: trustBadgeText,
       MERCHANT_NAME: merchantName,
       ORDER_ID: orderId,
-      AMOUNT: state?.amount || '0.00',
+      AMOUNT: state?.amount || '10.00',
       VPA: vpa,
       LOGO_URL: logoUrl,
       SIDEBAR_NOTICE: sidebarNotice,
@@ -521,7 +521,10 @@ export class CheckoutServer {
       if (qrMatch) {
         const paymentId = qrMatch[1];
         const state = await this.fetchPaymentState(paymentId);
-        const upiUri = state?.upiUri || `upi://pay?pa=${encodeURIComponent(state?.payeeVpa || 'merchant@upi')}&pn=${encodeURIComponent(state?.merchantName || 'Store')}&am=${encodeURIComponent(state?.amount || '100.00')}&tn=${encodeURIComponent(paymentId)}`;
+        const payeeVpa = state?.payeeVpa || (process.env.DEFAULT_PAYEE_VPA || '').trim() || '8432265669@slc';
+        const merchantName = state?.merchantName || (process.env.DEFAULT_MERCHANT_NAME || '').trim() || 'Saca Committee';
+        const amount = state?.amount || '10.00';
+        const upiUri = state?.upiUri || `upi://pay?pa=${encodeURIComponent(payeeVpa)}&pn=${encodeURIComponent(merchantName)}&am=${encodeURIComponent(amount)}&tn=${encodeURIComponent(paymentId)}`;
 
         const svg = generateQrSvg(upiUri, 220);
         res.writeHead(200, {

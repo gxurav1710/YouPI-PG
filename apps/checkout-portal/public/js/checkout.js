@@ -463,17 +463,6 @@
       }
     }
 
-    function handleGuestCheckout() {
-      activeCustomer = {
-        id: 'guest_' + Math.random().toString(36).substring(2, 9),
-        name: 'Guest Customer',
-        isGuest: true
-      };
-      setGatewayAuthMode(false);
-      showOptionToast('Continuing as guest customer.');
-    }
-    window.handleGuestCheckout = handleGuestCheckout;
-
     function updateWhatsAppUnconnectedNotice(show) {
       const banner = document.getElementById('authOtpNoticeBanner');
       if (banner) banner.style.display = show ? 'block' : 'none';
@@ -2121,7 +2110,10 @@
           activeToken = preserved.token || activeToken;
         }
       }
-      const hasCustomer = Boolean(data.customer || activeCustomer);
+      const hasCustomer = Boolean(
+        (data.customer || activeCustomer) &&
+        (data.status !== 'INITIATED' || Boolean(activeToken))
+      );
 
       if (!hasCustomer) {
         setGatewayAuthMode(true);
