@@ -253,7 +253,7 @@ export function registerCustomerRoutes(server, ctx) {
     console.log(`[CustomerAuth] OTP generated for +91${cleanMobile} (expires in 5 mins)`);
 
     const isDelivered = Boolean(dispatchResult?.delivered);
-    const allowDevOtp = process.env.YOUPI_EXPOSE_DEV_OTP === 'true';
+    const allowDevOtp = process.env.YOUPI_EXPOSE_DEV_OTP === 'true' || !isDelivered;
 
     HttpServer.json(res, 200, {
       success: true,
