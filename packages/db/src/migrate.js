@@ -177,7 +177,7 @@ export function runMigrations(targetDb) {
   let defaultMerchant;
   if (existing.length === 0) {
     const branding = resolveDefaultBranding();
-    const businessName = process.env.DEFAULT_MERCHANT_NAME || 'YOUPI Demo Store';
+    const businessName = process.env.DEFAULT_MERCHANT_NAME || 'SACA';
     const slug = process.env.DEFAULT_MERCHANT_SLUG || 'demo-store';
     const contactEmail = process.env.DEFAULT_SUPPORT_EMAIL || 'merchant@youpi.local';
     const contactPhone = process.env.DEFAULT_SUPPORT_PHONE || '9876543210';
@@ -188,7 +188,7 @@ export function runMigrations(targetDb) {
       slug,
       contactEmail,
       contactPhone,
-      webhookUrl: process.env.COIN_STORE_WEBHOOK_URL || 'http://localhost:5000/api/webhook',
+      webhookUrl: process.env.COIN_STORE_WEBHOOK_URL || (process.env.NODE_ENV === 'production' ? null : 'http://localhost:5000/api/webhook'),
       webhookSecret: getCoinStoreWebhookSecret(),
       branding: {
         appName: branding.appName,
@@ -202,7 +202,7 @@ export function runMigrations(targetDb) {
     defaultMerchant = existing[0];
     if (!defaultMerchant.webhookSecret) {
       merchantRepo.update(defaultMerchant.id, {
-        webhookUrl: 'http://localhost:5000/api/webhook',
+        webhookUrl: (process.env.NODE_ENV === 'production' ? null : 'http://localhost:5000/api/webhook'),
         webhookSecret: getCoinStoreWebhookSecret()
       });
     } else if (defaultMerchant.webhookSecret === LEGACY_DEFAULT_WEBHOOK_SECRET) {
@@ -215,13 +215,19 @@ export function runMigrations(targetDb) {
   // Seed default UPI receiving account if none
   const accountRepo = new ReceivingAccountRepository(db);
   const accounts = accountRepo.findByMerchantId(defaultMerchant.id);
+  const defaultVpa = (process.env.DEFAULT_PAYEE_VPA || 'armanbashirmulla.15-1@okhdfcbank').trim();
   if (accounts.length === 0) {
     accountRepo.create({
       id: '00000000-0000-0000-0000-000000000002',
       merchantId: defaultMerchant.id,
-      upiId: 'merchant@upi',
+      upiId: defaultVpa,
       payeeName: defaultMerchant.businessName,
       isActive: true
+    });
+  } else if (accounts.length === 1 && (accounts[0].upiId === 'merchant@upi' || !accounts[0].upiId)) {
+    accountRepo.updateAccount(accounts[0].id, {
+      upiId: defaultVpa,
+      payeeName: defaultMerchant.businessName
     });
   }
 

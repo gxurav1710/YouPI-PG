@@ -118,10 +118,32 @@ export function resolveRuntimeUrls(options = {}) {
 
   if (mode === 'production') {
     if (!domain) {
+      if (process.env.RENDER === 'true' || process.env.RENDER_EXTERNAL_URL) {
+        const renderHost = process.env.RENDER_EXTERNAL_URL
+          ? new URL(process.env.RENDER_EXTERNAL_URL).host
+          : (options.domain || 'onrender.com');
+        return {
+          mode: 'production',
+          isProduction: true,
+          domain: renderHost,
+          prefix,
+          routes: [],
+          checkoutUrl: `https://${renderHost}/checkout/`,
+          checkoutHostname: renderHost,
+          apiUrl: `https://${renderHost}`,
+          apiHostname: renderHost,
+          adminUrl: `https://${renderHost}/admin`,
+          adminHostname: renderHost,
+          gmailUrl: `https://${renderHost}`,
+          gmailHostname: renderHost,
+          storeUrl: `https://${renderHost}/store`,
+          storeHostname: renderHost
+        };
+      }
       if ((process.env.NODE_ENV === 'test' || process.env.YOUPI_MODE === 'localhost') && options.envMode !== 'production') {
         mode = 'localhost';
       } else {
-        throw new Error('Production Configuration Incomplete: Cloudflare Domain is required when running in PRODUCTION mode.');
+        mode = 'localhost';
       }
     }
   }

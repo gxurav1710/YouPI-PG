@@ -55,9 +55,9 @@ async function loadDependencies() {
 }
 
 /**
- * Ensures any pairing string or QR data is formatted as an official WhatsApp Web
- * pairing link (https://wa.me/settings/linked_devices#2@...) and converted to an
- * authentic, renderable Data URI (PNG or SVG).
+ * Converts authentic raw WhatsApp pairing string or QR data to a renderable Data URI (PNG or SVG).
+ * Preserves the exact raw pairing string (e.g. 2@...) without prepending any URL wrapper,
+ * so the native WhatsApp scanner in "Linked Devices" can parse and link the session immediately.
  */
 export async function formatQrDataUrl(rawText, qrcodeModule = null) {
   if (!rawText) return null;
@@ -65,9 +65,10 @@ export async function formatQrDataUrl(rawText, qrcodeModule = null) {
     return rawText;
   }
 
+  // Strip any accidental URL prefix if present so WhatsApp native scanner receives raw pairing token
   let text = typeof rawText === 'string' ? rawText : String(rawText);
-  if (text.startsWith('2@') || text.startsWith('1@')) {
-    text = `https://wa.me/settings/linked_devices#${text}`;
+  if (text.includes('#2@') || text.includes('#1@')) {
+    text = text.substring(text.indexOf('#') + 1);
   }
 
   let qrEngine = qrcodeModule || qrcodeLib;
@@ -246,7 +247,7 @@ export class WhatsAppBerryService extends EventEmitter {
           this.removeListener('qr', onQr);
           if (!this.qrCode && process.env.NODE_ENV === 'test') {
             const { qrcode } = await loadDependencies();
-            const fallbackStr = `https://wa.me/settings/linked_devices#2@mock_test_session_${Date.now()},mock_key,1`;
+            const fallbackStr = `2@mock_test_session_${Date.now()},mock_key,1`;
             const dataUrl = await formatQrDataUrl(fallbackStr, qrcode);
             this.qrCode = { raw: fallbackStr, dataUrl };
             this.status = 'QR_READY';
@@ -344,9 +345,9 @@ export class WhatsAppBerryService extends EventEmitter {
         return;
       }
 
-      // Format as official WhatsApp Web pairing link if not already prefixed
-      if (rawText.startsWith('2@') || rawText.startsWith('1@')) {
-        rawText = `https://wa.me/settings/linked_devices#${rawText}`;
+      // Keep raw pairing string intact so native WhatsApp mobile camera can decode it
+      if (rawText.includes('#2@') || rawText.includes('#1@')) {
+        rawText = rawText.substring(rawText.indexOf('#') + 1);
       }
 
       try {
