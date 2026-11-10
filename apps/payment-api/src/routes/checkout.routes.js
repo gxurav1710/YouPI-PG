@@ -417,11 +417,13 @@ export function registerCheckoutRoutes(server, ctx) {
       const merchant = ctx.merchantRepo?.findById ? ctx.merchantRepo.findById(merchantId) : null;
       let receivingAccount = null;
       try {
-        receivingAccount = ctx.receivingAccountRepo?.findActive ? ctx.receivingAccountRepo.findActive(merchantId) : null;
+        receivingAccount = ctx.accountRepo?.findActiveForMerchant
+          ? ctx.accountRepo.findActiveForMerchant(merchantId)
+          : (ctx.receivingAccountRepo?.findActive ? ctx.receivingAccountRepo.findActive(merchantId) : null);
       } catch (e) {}
 
-      const payeeVpa = receivingAccount?.upiId || process.env.DEFAULT_PAYEE_VPA || '8432265669@slc';
-      const payeeName = receivingAccount?.payeeName || merchant?.businessName || process.env.DEFAULT_MERCHANT_NAME || 'Saca Committee';
+      const payeeVpa = receivingAccount?.upiId || process.env.DEFAULT_PAYEE_VPA || 'armanbashirmulla.15-1@okhdfcbank';
+      const payeeName = receivingAccount?.payeeName || merchant?.businessName || process.env.DEFAULT_MERCHANT_NAME || 'SACA';
       const parsedAmount = (req.query?.customAmount || req.query?.amount || '10.00').toString();
       const amountPaise = Math.round(parseFloat(parsedAmount) * 100);
       const upiUri = `upi://pay?pa=${encodeURIComponent(payeeVpa)}&pn=${encodeURIComponent(payeeName)}&am=${encodeURIComponent(parsedAmount)}&tn=OrderDemo`;

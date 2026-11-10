@@ -177,7 +177,7 @@ export function runMigrations(targetDb) {
   let defaultMerchant;
   if (existing.length === 0) {
     const branding = resolveDefaultBranding();
-    const businessName = process.env.DEFAULT_MERCHANT_NAME || 'Saca Committee';
+    const businessName = process.env.DEFAULT_MERCHANT_NAME || 'SACA';
     const slug = process.env.DEFAULT_MERCHANT_SLUG || 'demo-store';
     const contactEmail = process.env.DEFAULT_SUPPORT_EMAIL || 'merchant@youpi.local';
     const contactPhone = process.env.DEFAULT_SUPPORT_PHONE || '9876543210';
@@ -215,7 +215,7 @@ export function runMigrations(targetDb) {
   // Seed default UPI receiving account if none
   const accountRepo = new ReceivingAccountRepository(db);
   const accounts = accountRepo.findByMerchantId(defaultMerchant.id);
-  const defaultVpa = (process.env.DEFAULT_PAYEE_VPA || '8432265669@slc').trim();
+  const defaultVpa = (process.env.DEFAULT_PAYEE_VPA || 'armanbashirmulla.15-1@okhdfcbank').trim();
   if (accounts.length === 0) {
     accountRepo.create({
       id: '00000000-0000-0000-0000-000000000002',

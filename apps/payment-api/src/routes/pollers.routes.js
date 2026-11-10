@@ -737,7 +737,7 @@ export function registerPollerRoutes(server, ctx) {
       sender = 'alerts@retail.bank.in';
     }
 
-    // 3. Resolve Receiving Account (defaults to merchant's active VPA: 8432265669@slc)
+    // 3. Resolve Receiving Account (defaults to merchant's active VPA: armanbashirmulla.15-1@okhdfcbank)
     let receivingAccountId = body.receivingAccountId;
     if (!receivingAccountId) {
       const defaultMerchantId = '00000000-0000-0000-0000-000000000001';

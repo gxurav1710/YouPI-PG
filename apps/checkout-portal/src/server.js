@@ -229,14 +229,14 @@ export class CheckoutServer {
 
     const appName = state?.branding?.appName || (process.env.DEFAULT_APP_NAME || '').trim() || 'YouPI PG';
     const primaryColor = state?.branding?.primaryColor || (process.env.DEFAULT_PRIMARY_COLOR || '').trim() || '#0b63e5';
-    const merchantName = state?.merchantName || (process.env.DEFAULT_MERCHANT_NAME || '').trim() || 'Saca Committee';
+    const merchantName = state?.merchantName || (process.env.DEFAULT_MERCHANT_NAME || '').trim() || 'SACA';
     const orderId = state?.orderId || 'ORD-78921';
     const logoUrl = state?.branding?.logoUrl || (process.env.DEFAULT_LOGO_URL || '').trim() || '';
     const sidebarNotice = state?.branding?.sidebarNotice || 'Fast & Secure 256-Bit Encrypted Payments';
     const counterInstructions = state?.branding?.counterInstructions || 'Please visit the billing counter and present this screen to the cashier.';
     const footerGuarantee = state?.branding?.footerGuarantee || (process.env.DEFAULT_FOOTER_GUARANTEE || '').trim() || `Secured by ${appName} & 256-Bit Bank Encryption`;
     const trustBadgeText = state?.branding?.trustBadgeText || (process.env.DEFAULT_TRUST_BADGE_TEXT || '').trim() || `${appName} Verified Business`;
-    const vpa = state?.payeeVpa || state?.vpa || (process.env.DEFAULT_PAYEE_VPA || '').trim() || '8432265669@slc';
+    const vpa = state?.payeeVpa || state?.vpa || (process.env.DEFAULT_PAYEE_VPA || '').trim() || 'armanbashirmulla.15-1@okhdfcbank';
 
     // In production and localhost, use relative '' so browser requests hit the checkout portal /api proxy
     // This avoids cross-origin blocking, CORS errors, and tunnel DNS resolution issues.
@@ -519,8 +519,8 @@ export class CheckoutServer {
       if (qrMatch) {
         const paymentId = qrMatch[1];
         const state = await this.fetchPaymentState(paymentId);
-        const payeeVpa = state?.payeeVpa || (process.env.DEFAULT_PAYEE_VPA || '').trim() || '8432265669@slc';
-        const merchantName = state?.merchantName || (process.env.DEFAULT_MERCHANT_NAME || '').trim() || 'Saca Committee';
+        const payeeVpa = state?.payeeVpa || (process.env.DEFAULT_PAYEE_VPA || '').trim() || 'armanbashirmulla.15-1@okhdfcbank';
+        const merchantName = state?.merchantName || (process.env.DEFAULT_MERCHANT_NAME || '').trim() || 'SACA';
         const amount = state?.amount || '10.00';
         const upiUri = state?.upiUri || `upi://pay?pa=${encodeURIComponent(payeeVpa)}&pn=${encodeURIComponent(merchantName)}&am=${encodeURIComponent(amount)}&tn=${encodeURIComponent(paymentId)}`;
 
