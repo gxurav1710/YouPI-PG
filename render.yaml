@@ -1,34 +1,36 @@
-
 services:
+  # Aapki Node.js Application
   - type: web
-    name: youpi-pg-demo
-    runtime: node
+    name: youpi-pg
+    env: node
+    region: oregon
     plan: free
-    buildCommand: npm ci
-    startCommand: node scripts/start-render-demo.js
-    healthCheckPath: /health
-
+    buildCommand: npm install && npm run build
+    startCommand: npm start
     envVars:
-      - key: NODE_VERSION
-        value: 24.22.1
-
       - key: NODE_ENV
         value: production
-
-      - key: YOUPI_BIND_HOST
-        value: 0.0.0.0
-
-      - key: USE_SQLITE_FALLBACK
-        value: "true"
-
       - key: ENCRYPTION_MASTER_KEY
-        generateValue: true
-
+        generateValue: true # Render khud ek random key bana dega
       - key: JWT_SECRET
-        generateValue: true
+        generateValue: true # Render khud ek random secret bana dega
+      - key: INITIAL_ADMIN_EMAIL
+        value: admin@example.com # Isko apne email se badal lein
+      - key: INITIAL_ADMIN_PASSWORD
+        value: Admin@12345 # Isko apne strong password se badal lein
+      - key: BASE_PAYMENT_API_URL
+        value: https://youpi-pg.onrender.com # Deploy ke baad URL check karein
+      - key: BASE_CHECKOUT_URL
+        value: https://youpi-pg.onrender.com
+      - key: DATABASE_URL
+        fromDatabase:
+          name: youpi-db
+          property: connectionString
 
-      - key: YOUPI_ALLOW_DEV_TOOLS
-        value: "false"
-
-      - key: YOUPI_EXPOSE_DEV_OTP
-        value: "false"
+databases:
+  # Aapka Postgres Database
+  - name: youpi-db
+    databaseName: youpi_db
+    user: youpi_user
+    region: oregon
+    plan: free
